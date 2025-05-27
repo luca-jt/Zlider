@@ -18,14 +18,28 @@ pub fn build(b: *std.Build) void {
         .name = "Zlider",
         .root_module = exe_mod,
     });
+
+    exe.linkLibC();
+    exe.linkSystemLibrary("glfw");
+    exe.linkSystemLibrary("rt");
+    exe.linkSystemLibrary("m");
+    exe.linkSystemLibrary("dl");
+
+    exe.addIncludePath(b.path("extern"));
+
+    exe.defineCMacroRaw("GLFW_INCLUDE_NONE");
+    exe.defineCMacroRaw("STBI_ONLY_JPEG");
+    exe.defineCMacroRaw("STBI_ONLY_PNG");
+    exe.defineCMacroRaw("STBI_SUPPORT_ZLIBS");
+    exe.defineCMacroRaw("STB_IMAGE_IMPLEMENTATION");
+    exe.defineCMacroRaw("STBI_WINDOWS_UTF8");
+    exe.defineCMacroRaw("STB_IMAGE_WRITE_IMPLEMENTATION");
+    exe.defineCMacroRaw("STBIW_WINDOWS_UTF8");
+    exe.defineCMacroRaw("STB_TRUETYPE_IMPLEMENTATION");
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
-
-    // By making the run step depend on the install step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
-    // This is not necessary, however, if the application depends on other installed
-    // files, this ensures they will be present and in the expected location.
     run_cmd.step.dependOn(b.getInstallStep());
 
     // This allows the user to pass arguments to the application in the build

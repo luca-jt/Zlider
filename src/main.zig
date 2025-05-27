@@ -1,6 +1,14 @@
 const std = @import("std");
 const print = std.debug.print;
 
+const c = @cImport({
+    @cInclude("GLFW/glfw3.h");
+    @cInclude("glad.c");
+    @cInclude("stb_image.h");
+    @cInclude("stb_image_write.h");
+    @cInclude("stb_truetype.h");
+});
+
 pub fn main() !void {
     print("All your {s} are belong to us.\n", .{"codebase"});
 
@@ -11,22 +19,4 @@ pub fn main() !void {
     try stdout.print("Run `zig build test` to run the tests.\n", .{});
 
     try bw.flush();
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit();
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
