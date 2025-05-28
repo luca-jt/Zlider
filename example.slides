@@ -1,0 +1,51 @@
+// this is a comment
+
+define ./test1.png test_image // defines an alias for an image path
+
+slide // declare a slide like this
+
+// set the background color
+bg 0x072626FF
+
+// set the content alignment
+centered
+
+// set the text color
+text_color 0xFFFFFFFF
+
+// define the text size
+text_size 20
+
+// this text section defines a multiline text segment with the size 20
+text
+This is a test slide that displays centered text and an image.
+text
+
+// all the formatting parameters can be re-defined multiple times per slide
+
+// insert line spacings
+space 2
+
+// include the previously defined image
+test_image
+
+// inserting images, spacings, and text creates a new context section where you can define formatting etc
+
+slide
+
+bg 0x000000FF
+
+// text is left-aligned by default
+// default background color is 0xFFFFFFFF
+// default text color is 0x000000FF
+// default text size is 12
+// settings from previous slides will be kept
+
+text
+This is a second test slide with text and an image.
+text
+
+// you can reset the alignment for different sections of a slide
+centered
+
+image ./test2.png
