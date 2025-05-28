@@ -2,6 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 
 const c = @cImport({
+    @cDefine("GLFW_INCLUDE_NONE", "");
     @cInclude("GLFW/glfw3.h");
     @cInclude("glad.c");
     @cInclude("stb_image.h");

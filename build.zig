@@ -5,10 +5,6 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const exe_mod = b.createModule(.{
-        // `root_source_file` is the Zig "entry point" of the module. If a module
-        // only contains e.g. external object files, you can make this `null`.
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -27,15 +23,10 @@ pub fn build(b: *std.Build) void {
 
     exe.addIncludePath(b.path("extern"));
 
-    exe.defineCMacroRaw("GLFW_INCLUDE_NONE");
-    exe.defineCMacroRaw("STBI_ONLY_JPEG");
-    exe.defineCMacroRaw("STBI_ONLY_PNG");
-    exe.defineCMacroRaw("STBI_SUPPORT_ZLIBS");
-    exe.defineCMacroRaw("STB_IMAGE_IMPLEMENTATION");
-    exe.defineCMacroRaw("STBI_WINDOWS_UTF8");
-    exe.defineCMacroRaw("STB_IMAGE_WRITE_IMPLEMENTATION");
-    exe.defineCMacroRaw("STBIW_WINDOWS_UTF8");
-    exe.defineCMacroRaw("STB_TRUETYPE_IMPLEMENTATION");
+    exe.addCSourceFiles(.{
+        .files = &[_][]const u8{"src/extern/stb_impl.c"},
+        .flags = &[_][]const u8{"-g", "-O3"},
+    });
 
     b.installArtifact(exe);
 
