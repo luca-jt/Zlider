@@ -27,7 +27,6 @@ fn compile_shader(const c.GLchar *src, c.GLenum ty) c.GLuint {
     return shader;
 }
 
-
 c.GLuint link_program(c.GLuint vs, c.GLuint fs) {
     c.GLuint program = c.glCreateProgram();
     c.glAttachShader(program, vs);
@@ -55,7 +54,6 @@ c.GLuint link_program(c.GLuint vs, c.GLuint fs) {
     return program;
 }
 
-
 c.GLuint create_shader(const c.GLchar *vert, const c.GLchar *frag) {
     c.GLuint vs = compile_shader(vert, c.GL_VERTEX_SHADER);
     c.GLuint fs = compile_shader(frag, c.GL_FRAGMENT_SHADER);
@@ -63,7 +61,6 @@ c.GLuint create_shader(const c.GLchar *vert, const c.GLchar *frag) {
     c.glBindFragDataLocation(id, 0, "out_color");
     return id;
 }
-
 
 c.GLuint generate_texture(unsigned char *data, c.GLint width, c.GLint height) {
     c.GLuint tex_id = 0;
@@ -89,7 +86,6 @@ c.GLuint generate_texture(unsigned char *data, c.GLint width, c.GLint height) {
     return tex_id;
 }
 
-
 c.GLuint generate_white_texture(void) {
     c.GLuint white_texture = 0;
     c.glGenTextures(1, &white_texture);
@@ -109,7 +105,6 @@ c.GLuint generate_white_texture(void) {
     return white_texture;
 }
 
-
 void copy_frame_buffer_to_memory(void *memory) {
     c.glReadBuffer(c.GL_FRONT); // TODO: or GL_BACK?
     // TODO: (0,0) of the window or the viewport?
@@ -117,14 +112,12 @@ void copy_frame_buffer_to_memory(void *memory) {
     // TODO: flip the image vertically?
 }
 
-
 typedef struct {
     Vector3 position;
     Vector4 color;
     Vector2 uv;
     c.GLfloat tex_idx;
 } Vertex;
-
 
 typedef struct {
     c.GLuint shader;
@@ -141,13 +134,11 @@ typedef struct {
     TextureHashTable textures;
 } Renderer;
 
-
 const max_texture_count: usize = 32;
 const plane_mesh_num_vertices: usize = 4;
 const plane_meshj_num_indices: usize = 6;
 
-
-void init_renderer(Renderer *renderer, SlideShow *slide_show) {
+void init_renderer(Renderer *renderer) {
     renderer->shader = create_shader(VERTEX_SHADER, FRAGMENT_SHADER);
     renderer->white_texture = generate_white_texture();
     renderer->index_count = 0;
@@ -262,6 +253,53 @@ void init_renderer(Renderer *renderer, SlideShow *slide_show) {
     }
 }
 
+void render_slide_show(SlideShow *slide_show, Renderer *renderer) {
+    Slide *slide = current_slide(slide_show);
+    clear_screen(slide->background_color);
+    size_t current_cursor = slide->sections.items[0].text_size; // y position in pixels
+
+    const size_t line_spacing = 2; // TODO: will be set in the slide files in the future
+
+    for (Section *section = slide->sections.items; section < section + slide->sections.len; section++) {
+        const float scale_factor = (float)section->text_size / (float)WINDOW_STATE.vp_size[1];
+        const Matrix image_scale = MatrixScale(scale_factor, scale_factor, scale_factor);
+
+        switch (section->type) {
+            case SPACE_SECTION:
+            {
+                current_cursor += section->text_size;
+                current_cursor += line_spacing;
+                break;
+            }
+            case TEXT_SECTION:
+            {
+                Vector3 position = {0}; // TODO
+                Matrix trafo = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), image_scale);
+                GLuint tex_id = 0; // TODO
+                for (const char *ptr = section->text; *ptr; ptr++) {
+                    if (*ptr == '\n') {
+                        current_cursor += line_spacing; // TODO: other special chars and an x axis cursor
+                    }
+                    add_tex_quad(renderer, trafo, tex_id);
+                }
+                current_cursor += line_spacing;
+                break;
+            }
+            case IMAGE_SECTION:
+            {
+                Vector3 position = {0}; // TODO
+                Matrix trafo = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), image_scale);
+                int64_t id_result = texture_table_get(&renderer->textures, section->text);
+                CLIDER_ASSERT(id_result != -1, "Corrupted texture id.");
+                GLuint tex_id = (GLuint)id_result;
+                add_tex_quad(renderer, trafo, tex_id);
+                current_cursor += line_spacing;
+                break;
+            }
+        }
+    }
+    flush(renderer);
+}
 
 void flush(Renderer *renderer) {
     c.glUseProgram(renderer->shader);
@@ -307,7 +345,6 @@ void flush(Renderer *renderer) {
     renderer->obj_buffer.len = 0;
 }
 
-
 bool add_tex_quad(Renderer *renderer, Matrix trafo, c.GLuint tex_id) {
     // determine texture index
     c.GLfloat tex_idx = -1.0;
@@ -344,7 +381,6 @@ bool add_tex_quad(Renderer *renderer, Matrix trafo, c.GLuint tex_id) {
     return true;
 }
 
-
 bool add_color_quad(Renderer *renderer, Matrix trafo, Color32 color) {
     if ((size_t)renderer->index_count >= plane_meshj_num_indices * renderer->max_num_meshes) {
         return false;
@@ -363,7 +399,6 @@ bool add_color_quad(Renderer *renderer, Matrix trafo, Color32 color) {
 
     return true;
 }
-
 
 void drop_renderer(Renderer *renderer) {
     c.glDeleteProgram(renderer->shader);

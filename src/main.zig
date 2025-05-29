@@ -1,8 +1,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const print = std.debug.print;
 const c = @import("c.zig");
 const slides = @import("slides.zig");
 const win = @import("window.zig");
+const rendering = @import("rendering.zig");
 
 pub fn main() !void {
     var arg_allocator = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -10,35 +12,28 @@ pub fn main() !void {
     defer args.deinit();
     assert(args.skip()); // skip the program name
 
-    var slide_show: ?slides.SlideShow = null;
-    //defer drop_slide_show(&slide_show);
+    var slide_show = slides.SlideShow.init(std.heap.page_allocator);
+    defer slide_show.deinit();
 
-    if (args.next()) |title| {
-        slide_show = .{
-            .title = title,
-            .slides = std.ArrayList(slides.Slide).init(std.heap.page_allocator),
-        };
+    if (args.next()) |file_path| {
+        slide_show.loadSlides(file_path);
 
         if (args.skip()) {
             @panic("You can only supply one additional command line argument with a file or zero.");
         }
     }
 
-    const window: *c.GLFWwindow = win.init_window(800, 600, "Clider");
+    const window = win.init_window(800, 600, slide_show.title);
     defer win.close_window(window);
 
     win.set_event_config(window);
-    if (slide_show) |show| {
-        c.glfwSetWindowTitle(window, show.title);
-    }
 
-    //var renderer: Renderer = .{};
-    //renderer.init(&slide_show);
-    //defer renderer.deinit();
+    var renderer = rendering.Renderer.init();
+    defer renderer.deinit();
 
     while (c.glfwWindowShouldClose(window) == c.GL_FALSE) {
-        //handle_input(window, &slide_show, &renderer);
-        //renderer.render(&slide_show);
+        handle_input(window, &slide_show, &renderer);
+        renderer.render(&slide_show);
         c.glfwSwapBuffers(window);
         c.glfwWaitEvents();
     }

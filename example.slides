@@ -1,7 +1,5 @@
 // this is a comment
 
-slide // declare a slide like this
-
 // set the background color
 bg 0x072626FF
 
@@ -29,7 +27,7 @@ image ./test1.png
 
 // inserting images, spacings, and text creates a new context section where you can define formatting etc
 
-slide
+slide // declare a new slide like this
 
 bg 0x000000FF
 

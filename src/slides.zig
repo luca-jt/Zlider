@@ -5,8 +5,10 @@ pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
 const HashMap = std.AutoHashMap;
 const data = @import("data.zig");
+const Renderer = @import("rendering.zig").Renderer;
+const window_state = @import("window.zig").window_state;
 
-fn read_entire_file(file_name: []const u8, allocator: Allocator) !String {
+fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     const dir = std.fs.cwd();
     const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
     var string = String.fromOwnedSlice(allocator, buffer);
@@ -14,18 +16,33 @@ fn read_entire_file(file_name: []const u8, allocator: Allocator) !String {
     return string;
 }
 
-pub const LexError = error {
-    NoKeywordValue,
-    NoClosingKeyword,
-    UnknownKeyword,
+pub const SlidesParseError = error {
+    LexerNoKeywordValue,
+    LexerNoClosingKeyword,
+    LexerUnknownKeyword,
+    ParserEmptySlide,
+    TooManySlides,
 };
 
 const Lexer = struct {
     line: usize = 0,
-    buffer: String = String.init(std.heap.page_allocator),
+    buffer: String,
     ptr: *const u8,
+    allocator: Allocator,
 
     const Self = @This();
+
+    fn init(allocator: Allocator, ptr: *const u8) Self {
+        return .{
+            .buffer = String.init(allocator),
+            .allocator = allocator,
+            .ptr: ptr,
+        };
+    }
+
+    fn deinit(self: Self) void {
+        self.buffer.deinit();
+    }
 
     fn containedKeyword(self: *Self) ?data.Keyword {
         for (data.reserved_names, 0..) |name, i| {
@@ -48,14 +65,17 @@ const Lexer = struct {
         self.ptr += 1;
     }
 
-    fn readNextWord(self: *Self) LexError![]const u8 {
+    fn readNextWord(self: *Self) SlidesParseError![]const u8 {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
 
         while (self.ptr.* != '\0' and self.ptr.* != ' ' and self.ptr.* != '\t' and self.ptr.* != '\n') {
             self.readChar();
         }
-        if (self.buffer.len == 0) return LexError.NoKeywordValue;
+        if (self.buffer.len == 0) {
+            print("Line: {} | ", self.line);
+            return SlidesParseError.LexerNoKeywordValue;
+        }
         return self.buffer.items;
     }
 
@@ -73,7 +93,7 @@ const Lexer = struct {
         return self.buffer.items;
     }
 
-    fn next_token(self: *Self) LexError!?data.Token {
+    fn nextToken(self: *Self) SlidesParseError!?data.Token {
         self.buffer.clearRetainingCapacity();
         var token = null;
         self.skipWhiteSpace();
@@ -108,7 +128,8 @@ const Lexer = struct {
                             text.append('\n');
                             line = self.readUntilNewLine()
                         } else {
-                            return LexError.NoClosingKeyword;
+                            print("Line: {} | ", self.line);
+                            return SlidesParseError.LexerNoClosingKeyword;
                         }
                         break :blk .{ .text = text };
                     },
@@ -131,7 +152,8 @@ const Lexer = struct {
             } else if (next_word.len >= 2 and next_word[0..2] == "//") {
                 _ = self.readUntilNewLine();
             } else {
-                return LexError.UnknownKeyword;
+                print("Line: {} | ", self.line);
+                return SlidesParseError.LexerUnknownKeyword;
             }
         }
         return token;
@@ -140,7 +162,7 @@ const Lexer = struct {
 
 pub const SectionData = union {
     lines: usize,
-    text: []const u8,
+    text: String,
 };
 
 pub const SectionType = enum { space, text, image };
@@ -148,281 +170,242 @@ pub const SectionType = enum { space, text, image };
 pub const ElementAlignment = enum { center, right, left };
 
 pub const Section = struct {
-    text_size: usize,
+    text_size: usize = 12,
     section_type: SectionType,
     data: SectionData,
-    text_color: Color32,
-    alignment: ElementAlignment,
+    text_color: data.Color32 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+    alignment: ElementAlignment = .left,
 };
 
 pub const Slide = struct {
-    background_color: Color32,
+    background_color: Color32 = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
     sections: ArrayList(Section),
+
+    const Self = @This();
+
+    fn init(allocator: Allocator) Self {
+        return .{ .sections = ArrayList(Section).init(self.allocator) };
+    }
 };
 
 pub const SlideShow = struct {
     slides: ArrayList(Slide),
     slide_index: usize = 0,
-    title: [:0]const u8,
+    title: [:0]const u8 = "Zlider",
+    allocator: Allocator,
 
     const Self = @This();
 
-    pub fn current_slide(self: *Self) *Slide {
+    pub fn init(allocator: Allocator) Self {
+        return .{
+            .slides = ArrayList(Slide).init(allocator),
+            .allocator = allocator,
+        }
+    }
+
+    pub fn deinit(self: Self) void {
+        for (&self.slides) |*slide| {
+            for (&slide.sections) |section| {
+                switch (section.section_type) {
+                    .image, .text => section.data.text.deinit();
+                    else => {},
+                }
+            }
+            slide.sections.deinit();
+        }
+        self.slides.deinit();
+    }
+
+    pub fn loadSlides(self: *Self, file_path: [:0]const u8) void {
+        const file_contents = readEntireFile(file_path) catch {
+            print("Unable to read file: {}\n", file_path);
+            return;
+        };
+        defer file_contents.deinit();
+
+        self.title = file_path;
+
+        for (&self.slides) |*slide| {
+            for (&slide.sections) |section| {
+                switch (section.section_type) {
+                    .image, .text => section.data.text.deinit();
+                    else => {},
+                }
+            }
+            slide.sections.deinit();
+        }
+        self.slides.clearRetainingCapacity();
+
+        try self.parseSlideShow(file_contents) catch |e| {
+            switch (e) {
+                .LexerNoKeywordValue => { print("Lexer Error: missing keyword"); },
+                .LexerNoClosingKeyword => { print("Lexer Error: no closing keyword"); },
+                .LexerUnknownKeyword => { print("Lexer Error: unknown keyword"); },
+                .ParserEmptySlide => { print("Parser Error: missing keyword"); },
+                .TooManySlides => { print("Parser Error: missing keyword"); },
+            }
+            print("\nUnable to parse slide show file: {}\n", file_path);
+        };
+    }
+
+    pub fn currentSlide(self: *Self) *Slide {
         const slide = &(self.slides.items[self.slide_index]);
         return slide;
     }
+
+    fn newSlide(self: *Self, slide: *Slide, section: *Section) void {
+        newSection(slide, section);
+        const bg_color = slide.background_color;
+        self.slides.append(slide.*);
+        slide.* = Slide.init(self.allocator);
+        slide.background_color = bg_color;
+    }
+
+    fn parseSlideShow(self: *Self, file_contents: *String) SlidesParseError!void {
+        var lexer = Lexer.init(self.allocator, &file_contents.items[0]);
+        defer lexer.deinit();
+
+        var slide = Slide.init(self.allocator);
+        defer slide.sections.deinit();
+        var section = Section{ .section_type = undefined, .data = undefined };
+        var section_has_data = false;
+
+        while (try lexer.nextToken()) |token| {
+            switch (token) {
+                .text_color => |color| {
+                    section.text_color = color;
+                },
+                .bg => |color| {
+                    slide.background_color = color;
+                },
+                .slide => {
+                    if (slide.sections.len == 0 and !section_has_data) {
+                        print("Line: {} | ", lexer.line);
+                        return SlidesParseError.ParserEmptySlide;
+                    }
+                    self.newSlide(&slide, &section);
+                    section_has_data = false;
+                },
+                .centered => {
+                    section.alignment = .centered;
+                },
+                .left => {
+                    section.alignment = .left;
+                },
+                .right => {
+                    section.alignment = .right;
+                },
+                .text => |string| {
+                    if (self.slides.len != 0 or slide.sections.len != 0) {
+                        // skip the first section append
+                        newSection(&slide, &section);
+                    }
+                    section.section_type = .text;
+                    section.data = .{ .text = string };
+                    section_has_data = true;
+                },
+                .space => |number| {
+                    if (self.slides.len != 0 or slide.sections.len != 0) {
+                        // skip the first section append
+                        newSection(&slide, &section);
+                    }
+                    section.section_type = .space;
+                    section.data = .{ .lines = number };
+                    section_has_data = true;
+                },
+                .text_size => |number| {
+                    section.text_size = number;
+                },
+                .image => |path| {
+                    if (self.slides.len != 0 or slide.sections.len != 0) {
+                        // skip the first section append
+                        newSection(&slide, &section);
+                    }
+                    section.section_type = .image;
+                    section.data = .{ .text = path };
+                    section_has_data = true;
+                },
+            }
+        }
+
+        // create the last slide
+        if (slide.sections.len == 0 and !section_has_data) {
+            print("Line: {} | ", lexer.line);
+            return SlidesParseError.ParserEmptySlide;
+        }
+        newSection(&slide, &section);
+        self.slides.append(slide);
+        section_has_data = false;
+
+        if (self.slides.len > 999) return SlidesParseError.TooManySlides;
+    }
 };
 
-void parse_slide_show_file(SlideShow *slide_show, EntireFile *file) {
-    Lexer lexer = {0};
-    lexer.inside_comment = false;
-    lexer.ptr = (char*)file->contents;
-    lexer.file_aliases = string_table_create();
+fn newSection(slide: *Slide, section: *Section) void {
+    const text_size = section.text_size;
+    const text_color = section.text_color;
+    const alignment = section.alignment;
 
-    Slide slide = {0};
-    Section section = {0};
-    section.text_size = 12;
-    section.text_color = (Color32){ 0, 0, 0, 255 };
-    bool first_slide = true;
-    bool first_section = true;
+    slide.sections.append(section.*);
 
-    Token token;
-    do {
-        token = next_token(&lexer);
-
-        switch (token.type) {
-            case TOKEN_NONE:
-            case TOKEN_ERROR:
-                break;
-
-            case TOKEN_FILE:
-                {
-                    if (first_section) {
-                        first_section = false;
-                        break;
-                    }
-                    new_section(&section, &slide);
-                    section.type = IMAGE_SECTION;
-                    section.text = token.string.chars;
-                    break;
-                }
-
-            case TOKEN_BG:
-                slide.background_color = token.color;
-                break;
-
-            case TOKEN_SLIDE:
-                {
-                    if (first_slide) {
-                        first_slide = false;
-                        break;
-                    }
-                    new_section(&section, &slide);
-
-                    Color32 prev_bg_color = slide.background_color;
-                    Slide_array_append(&slide_show->slides, slide);
-
-                    slide = (Slide){0};
-                    slide.background_color = prev_bg_color;
-
-                    first_section = true;
-                    break;
-                }
-
-            case TOKEN_SPACE:
-                {
-                    if (first_section) {
-                        first_section = false;
-                        break;
-                    }
-                    new_section(&section, &slide);
-                    section.lines = token.size;
-                    break;
-                }
-
-            case TOKEN_TEXT_SIZE:
-                section.text_size = token.size;
-                break;
-
-            case TOKEN_CENTERED:
-                section.alignment = ALIGN_CENTER;
-                break;
-
-            case TOKEN_TEXT:
-                {
-                    if (first_section) {
-                        first_section = false;
-                        break;
-                    }
-                    new_section(&section, &slide);
-                    section.type = TEXT_SECTION;
-                    section.text = token.string.chars;
-                    break;
-                }
-
-            case TOKEN_RIGHT:
-                section.alignment = ALIGN_RIGHT;
-                break;
-
-            case TOKEN_LEFT:
-                section.alignment = ALIGN_LEFT;
-                break;
-
-            case TOKEN_DEFINE:
-                free_string(&token.string);
-                break;
-
-            case TOKEN_TEXT_COLOR:
-                section.text_color = token.color;
-                break;
-        }
-    } while (token.type != TOKEN_NONE and token.type != TOKEN_ERROR);
-
-    if (token.type == TOKEN_NONE) {
-        Section_array_append(&slide.sections, section);
-        Slide_array_append(&slide_show->slides, slide);
-    }
-
-    free_string(&lexer.buffer);
-    string_table_drop(&lexer.file_aliases);
-
-    if (token.type == TOKEN_ERROR) {
-        exit(1);
-    }
-
-    if (slide_show->slides.len < 1 or slide_show->slides.len > 999) {
-        CLIDER_LOG_ERROR("The number of slides has to be between 1 and 999.");
-        exit(1);
-    }
+    section.* = Section{ .section_type = undefined, .data = undefined };
+    section.text_size = text_size;
+    section.text_color = text_color;
+    section.alignment = alignment;
 }
 
-SlideShow slide_show_from_file(const char *file_name) {
-    SlideShow slide_show = {0};
-
-    EntireFile file = read_entire_file(file_name);
-    if (!file.contents) {
-        return slide_show;
-    }
-
-    slide_show.title = file_name;
-    parse_slide_show_file(&slide_show, &file);
-
-    free_entire_file(&file);
-
-    return slide_show;
-}
-
-void drop_slide_show(SlideShow *slide_show) {
-    for (size_t i = 0; i < slide_show->slides.len; i++) {
-        Slide *slide = &slide_show->slides.items[i];
-        for (Section *section = slide->sections.items; section < section + slide->sections.len; section++) {
-            if (section->type != SPACE_SECTION) {
-                free((void*)section->text); // this is done because the ownership of the section text was transfered previously in the token generation
-            }
-        }
-        Section_array_free(&slide->sections);
-    }
-    Slide_array_free(&slide_show->slides);
-}
-
-void render_slide_show(SlideShow *slide_show, Renderer *renderer) {
-    Slide *slide = current_slide(slide_show);
-    clear_screen(slide->background_color);
-    size_t current_cursor = slide->sections.items[0].text_size; // y position in pixels
-
-    const size_t line_spacing = 2; // TODO: will be set in the slide files in the future
-
-    for (Section *section = slide->sections.items; section < section + slide->sections.len; section++) {
-        const float scale_factor = (float)section->text_size / (float)WINDOW_STATE.vp_size[1];
-        const Matrix image_scale = MatrixScale(scale_factor, scale_factor, scale_factor);
-
-        switch (section->type) {
-            case SPACE_SECTION:
-            {
-                current_cursor += section->text_size;
-                current_cursor += line_spacing;
-                break;
-            }
-            case TEXT_SECTION:
-            {
-                Vector3 position = {0}; // TODO
-                Matrix trafo = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), image_scale);
-                GLuint tex_id = 0; // TODO
-                for (const char *ptr = section->text; *ptr; ptr++) {
-                    if (*ptr == '\n') {
-                        current_cursor += line_spacing; // TODO: other special chars and an x axis cursor
-                    }
-                    add_tex_quad(renderer, trafo, tex_id);
-                }
-                current_cursor += line_spacing;
-                break;
-            }
-            case IMAGE_SECTION:
-            {
-                Vector3 position = {0}; // TODO
-                Matrix trafo = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), image_scale);
-                int64_t id_result = texture_table_get(&renderer->textures, section->text);
-                CLIDER_ASSERT(id_result != -1, "Corrupted texture id.");
-                GLuint tex_id = (GLuint)id_result;
-                add_tex_quad(renderer, trafo, tex_id);
-                current_cursor += line_spacing;
-                break;
-            }
-        }
-    }
-    flush(renderer);
-}
-
-void handle_input(GLFWwindow *window, SlideShow *slide_show, Renderer *renderer) {
+pub fn handle_input(window: *c.GLFWwindow, slide_show: *SlideShow, renderer: *Renderer) !void {
     // fullscreen toggle
     if (c.glfwGetKey(window, c.GLFW_KEY_F11) == c.GLFW_PRESS) {
-        c.GLFWmonitor* monitor = c.glfwGetPrimaryMonitor();
+        const monitor = c.glfwGetPrimaryMonitor();
         if (!c.glfwGetWindowMonitor(window)) {
             update_window_attributes(window);
-            const c.GLFWvidmode *mode = c.glfwGetVideoMode(monitor);
-            c.glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, c.GLFW_DONT_CARE);
+            const mode = c.glfwGetVideoMode(monitor);
+            c.glfwSetWindowMonitor(window, monitor, 0, 0, mode.width, mode.height, c.GLFW_DONT_CARE);
         } else {
-            c.glfwSetWindowMonitor(window, NULL, WINDOW_STATE.win_pos[0], WINDOW_STATE.win_pos[1], WINDOW_STATE.win_size[0], WINDOW_STATE.win_size[1], c.GLFW_DONT_CARE);
+            c.glfwSetWindowMonitor(window, null, window_state.win_pos_x, window_state.win_pos_y, window_state.win_size_x, window_state.win_size_y, c.GLFW_DONT_CARE);
         }
     }
     // slide_show_switch
     if (c.glfwGetKey(window, c.GLFW_KEY_RIGHT) == c.GLFW_PRESS or c.glfwGetKey(window, c.GLFW_KEY_DOWN) == c.GLFW_PRESS) {
-        if (slide_show->current_slide < slide_show->slides.len - 1) {
-            slide_show->current_slide++;
+        if (slide_show.slide_index < slide_show.slides.len - 1) {
+            slide_show.slide_index += 1;
         }
     }
     if (c.glfwGetKey(window, c.GLFW_KEY_LEFT) == c.GLFW_PRESS or c.glfwGetKey(window, c.GLFW_KEY_UP) == c.GLFW_PRESS) {
-        if (slide_show->current_slide > 0) {
-            slide_show->current_slide--;
+        if (slide_show.slide_index > 0) {
+            slide_show.slide_index -= 1;
         }
     }
     // dump the slides to png
     if (c.glfwGetKey(window, c.GLFW_KEY_I) == c.GLFW_PRESS) {
-        size_t current_slide_idx = slide_show->current_slide;
-        slide_show->current_slide = 0;
-        void *slide_mem = malloc(WINDOW_STATE.vp_size[0] * WINDOW_STATE.vp_size[1] * 4);
-        CLIDER_DEBUG_ASSERT(slide_mem, "allocation for frame image failed");
+        const current_slide_idx = slide_show.slide_index;
+        slide_show.slide_index = 0;
 
-        int compression_level = 5;
+        const slide_mem_size: usize = @intCast(window_state.vp_size_x) * @intCast(window_state.vp_size_y) * 4;
+        const slide_mem = try std.heap.page_allocator.allocSentinel(u8, slide_mem_size, 0);
+        defer std.heap.page_allocator.free(slide_mem);
 
-        StringBuilder slide_name = {0};
-        append_string(&slide_name, slide_show->title);
-        append_string(&slide_name, "_000");
-        char *number_string = &slide_name.chars[slide_name.len - 1];
-        number_string -= 3;
+        const compression_level = 5;
 
-        while (slide_show->current_slide < slide_show->slides.len) {
-            int slide_number = slide_show->current_slide + 1;
-            sprintf(number_string, "%03d", slide_number);
-            render_slide_show(slide_show, renderer);
+        var slide_file_name = String.init(std.heap.page_allocator);
+        defer slide_file_name.deinit();
+        slide_file_name.appendSlice(slide_show.title);
+        slide_file_name.appendSlice("_000\0");
+
+        var number_slice = slide_file_name.items[slide_file_name.len-4..slide_file_name.len-1];
+
+        while (slide_show.slide_index < slide_show.slides.len) {
+            const slide_number = slide_show.slide_index + 1;
+            _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
+
+            renderer.render(slide_show);
             copy_frame_buffer_to_memory(slide_mem);
 
-            c.stbi_write_png(slide_name.chars, WINDOW_STATE.vp_size[0], WINDOW_STATE.vp_size[1], compression_level, slide_mem, 4);
-            slide_show->current_slide++;
+            c.stbi_write_png(slide_file_name.items, window_state.vp_size_x, window_state.vp_size_y, compression_level, slide_mem, 4);
+            slide_show.slide_index += 1;
         }
 
-        free(slide_mem);
-        free_string(&slide_name);
-        slide_show->current_slide = current_slide_idx;
+        slide_show.slide_index = current_slide_idx;
     }
 }
