@@ -1,5 +1,4 @@
 const std = @import("std");
-pub const ArrayList = std.ArrayList;
 pub const String = std.ArrayList(u8);
 const c = @import("c.zig");
 const linalg = @import("linalg.zig");
@@ -10,56 +9,21 @@ pub const Color32 = struct {
     b: u8 = 0,
     a: u8 = 0,
 
-    pub fn to_vec4(self: Color32) linalg.Vec4 {
-        const r = @as(f32, self.r) / 255.0;
-        const g = @as(f32, self.g) / 255.0;
-        const b = @as(f32, self.b) / 255.0;
-        const a = @as(f32, self.a) / 255.0;
+    pub fn toVec4(self: Color32) linalg.Vec4 {
+        const r = @as(f32, @floatFromInt(self.r)) / 255.0;
+        const g = @as(f32, @floatFromInt(self.g)) / 255.0;
+        const b = @as(f32, @floatFromInt(self.b)) / 255.0;
+        const a = @as(f32, @floatFromInt(self.a)) / 255.0;
         return .{ r, g, b, a };
     }
-};
 
-//pub fn rgba_from_hex(hex: [:0]const u8) Color32 { // is the input type correct?
-//    u32 number = (uint32_t)strtoul(hex, NULL, 16);
-//    u8 r = (number & 0xFF000000) >> 24;
-//    u8 g = (number & 0x00FF0000) >> 16;
-//    u8 b = (number & 0x0000FF00) >> 8;
-//    u8 a = number & 0x000000FF;
-//    return .{ r, g, b, a };
-//}
-
-pub const SectionData = union {
-    lines: usize,
-    text: [:0]const u8,
-};
-
-pub const SectionType = enum { space, text, image };
-
-pub const ElementAlignment = enum { center, right, left };
-
-pub const Section = struct {
-    text_size: usize,
-    section_type: SectionType,
-    data: SectionData,
-    text_color: Color32,
-    alignment: ElementAlignment
-};
-
-pub const Slide = struct {
-    background_color: Color32,
-    sections: ArrayList(Section)
-};
-
-pub const SlideShow = struct {
-    slides: ArrayList(Slide),
-    slide_index: usize = 0,
-    title: [:0]const u8,
-
-    const Self = @This();
-
-    pub fn current_slide(self: *Self) *Slide {
-        const slide = &(self.slides.items[self.slide_index]);
-        return slide;
+    pub fn fromHex(hex: []const u8) Color32 {
+        const number = std.fmt.parseInt(u32, hex, 16);
+        const r = @intCast(u8, (number & 0xFF000000) >> 24);
+        const g = @intCast(u8, (number & 0x00FF0000) >> 16);
+        const b = @intCast(u8, (number & 0x0000FF00) >> 8);
+        const a = @intCast(u8, (number & 0x000000FF));
+        return .{ r, g, b, a }
     }
 };
 
@@ -67,32 +31,28 @@ pub const Keyword = enum(usize) {
     text_color = 0,
     bg = 1,
     slide = 2,
-    define = 3,
-    centered = 4,
-    left = 5,
-    right = 6,
-    text = 7,
-    space = 8,
-    text_size = 9,
-    image = 10,
+    centered = 3,
+    left = 4,
+    right = 5,
+    text = 6,
+    space = 7,
+    text_size = 8,
+    image = 9,
 };
 
-pub const reserved_names = [_][:0]const u8{ "text_color", "bg", "slide", "define", "centered", "left", "right", "text", "space", "text_size", "image" };
+pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image" };
 
 pub const Token = union(enum) {
-    none,
-    err,
+    text_color: Color32,
+    bg: Color32,
     slide,
     centered,
-    right,
     left,
-    file: String,
-    bg: Color32,
+    right,
+    text: String,
     space: usize,
     text_size: usize,
-    text: String,
-    define: String,
-    text_color: Color32,
+    image: String,
 };
 
 pub const vertex_shader =

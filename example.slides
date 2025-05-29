@@ -1,7 +1,5 @@
 // this is a comment
 
-define ./test1.png test_image // defines an alias for an image path
-
 slide // declare a slide like this
 
 // set the background color
@@ -26,8 +24,8 @@ text
 // insert line spacings
 space 2
 
-// include the previously defined image
-test_image
+// include an image
+image ./test1.png
 
 // inserting images, spacings, and text creates a new context section where you can define formatting etc
 

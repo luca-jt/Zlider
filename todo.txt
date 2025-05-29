@@ -4,3 +4,4 @@ font option
 line spacing
 render the slides
 load the slide show assets in the renderer
+dont use file aliases

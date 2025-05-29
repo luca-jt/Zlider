@@ -1,193 +1,177 @@
 const std = @import("std");
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
+pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
 const HashMap = std.AutoHashMap;
+const data = @import("data.zig");
 
-
-fn read_entire_file(file_name: []const u8, allocator: Allocator) ![]u8 {
+fn read_entire_file(file_name: []const u8, allocator: Allocator) !String {
     const dir = std.fs.cwd();
-    const buffer = dir.readFileAlloc(allocator, file_name, 4096);
-    return buffer;
+    const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
+    var string = String.fromOwnedSlice(allocator, buffer);
+    string.append('\0'); // do this for lexing pointer stuff
+    return string;
 }
 
-
-const Lexer = struct {
-    line: usize,
-    buffer: String;
-    inside_comment: bool,
-    file_aliases: HashMap([]const u8, []const u8),
-    ptr: *const u8,
+pub const LexError = error {
+    NoKeywordValue,
+    NoClosingKeyword,
+    UnknownKeyword,
 };
 
+const Lexer = struct {
+    line: usize = 0,
+    buffer: String = String.init(std.heap.page_allocator),
+    ptr: *const u8,
 
-bool lexer_contains_keyword(Lexer *lexer) {
-    for (size_t i = 0; i < RESERVED_NAMES_LEN; i++) {
-        const char *name = RESERVED_NAMES[i];
-        if (strcmp(lexer->buffer.chars, name) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
+    const Self = @This();
 
-
-char *lexer_next_word(Lexer *lexer) {
-    clear_string(&lexer->buffer);
-    while (*lexer->ptr == ' ' || *lexer->ptr == '\t' || *lexer->ptr == '\n') {
-        lexer->ptr++;
-    }
-    while (*lexer->ptr != '\0' && *lexer->ptr != ' ' && *lexer->ptr != '\t' && *lexer->ptr != '\n') {
-        append_char(&lexer->buffer, *(lexer->ptr++));
-    }
-    return lexer->buffer.chars;
-}
-
-
-char *lexer_read_until_newline(Lexer* lexer) {
-    clear_string(&lexer->buffer);
-    while (*lexer->ptr == ' ' || *lexer->ptr == '\t' || *lexer->ptr == '\n') {
-        lexer->ptr++;
-    }
-    while (*lexer->ptr != '\0' && *lexer->ptr != '\n') {
-        append_char(&lexer->buffer, *(lexer->ptr++));
-    }
-    const char *eos = end_of_string(&lexer->buffer);
-    while (*eos == ' ' || *eos == '\t') {
-        pop_char(&lexer->buffer);
-        eos = end_of_string(&lexer->buffer);
-    }
-    return lexer->buffer.chars;
-}
-
-
-Token next_token(Lexer *lexer) {
-    clear_string(&lexer->buffer);
-    Token token = {0};
-    token.is_empty = false;
-
-    while (*lexer->ptr == ' ' || *lexer->ptr == '\t' || *lexer->ptr == '\n') {
-        lexer->ptr++;
-    }
-
-    while (*lexer->ptr != '\0') {
-        char c = *(lexer->ptr++);
-
-        if (c == '\n' && lexer->inside_comment) {
-            lexer->inside_comment = false;
-            clear_string(&lexer->buffer);
-            lexer->line++;
-            continue;
-        }
-
-        if (lexer->inside_comment) {
-            continue;
-        }
-
-        if (c == ' ' || c == '\t' || c == '\0' || c == '\n') {
-            if (lexer_contains_keyword(lexer)) {
-                const char *keyword = lexer->buffer.chars;
-
-                if (strcmp(keyword, RESERVED_NAMES[KW_TEXT_COLOR]) == 0) {
-                    token.type = TOKEN_TEXT_COLOR;
-                    const char *next_word = lexer_next_word(lexer);
-                    token.color = rgba_from_hex(next_word);
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_BG]) == 0) {
-                    token.type = TOKEN_BG;
-                    const char *next_word = lexer_next_word(lexer);
-                    token.color = rgba_from_hex(next_word);
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_SLIDE]) == 0) {
-                    token.type = TOKEN_SLIDE;
-                    token.is_empty = true;
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_DEFINE]) == 0) {
-                    token.type = TOKEN_DEFINE;
-                    const char *file = lexer_next_word(lexer);
-                    append_string(&token.string, file);
-                    const char *alias = lexer_next_word(lexer);
-                    string_table_insert(&lexer->file_aliases, alias, token.string.chars);
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_CENTERED]) == 0) {
-                    token.type = TOKEN_CENTERED;
-                    token.is_empty = true;
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_LEFT]) == 0) {
-                    token.type = TOKEN_LEFT;
-                    token.is_empty = true;
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_RIGHT]) == 0) {
-                    token.type = TOKEN_RIGHT;
-                    token.is_empty = true;
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_TEXT]) == 0) {
-                    token.type = TOKEN_TEXT;
-                    const char *next_line = lexer_read_until_newline(lexer);
-                    while (strcmp(next_line, "text") != 0) {
-                        append_string(&token.string, next_line);
-                        append_char(&token.string, '\n');
-                        next_line = lexer_read_until_newline(lexer);
-                    }
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_SPACE]) == 0) {
-                    token.type = TOKEN_SPACE;
-                    const char *next_word = lexer_next_word(lexer);
-                    token.size = (size_t)strtoul(next_word, NULL, 10);
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_TEXT_SIZE]) == 0) {
-                    token.type = TOKEN_TEXT_SIZE;
-                    const char *next_word = lexer_next_word(lexer);
-                    token.size = (size_t)strtoul(next_word, NULL, 10);
-
-                } else if (strcmp(keyword, RESERVED_NAMES[KW_IMAGE]) == 0) {
-                    token.type = TOKEN_FILE;
-                    const char *next_word = lexer_next_word(lexer);
-                    append_string(&token.string, next_word);
-
-                } else {
-                    CLIDER_LOG_ERROR("This should never happen. Error in identifier lookup.");
-                    token.type = TOKEN_ERROR;
-                    token.is_empty = true;
-                }
-            } else if (string_table_get(&lexer->file_aliases, lexer->buffer.chars)) {
-                token.type = TOKEN_FILE;
-                const char *alias = string_table_get(&lexer->file_aliases, lexer->buffer.chars);
-                append_string(&token.string, alias);
-            } else {
-                report_parse_error(lexer->line, &lexer->buffer);
-                token.type = TOKEN_ERROR;
-                token.is_empty = true;
+    fn containedKeyword(self: *Self) ?data.Keyword {
+        for (data.reserved_names, 0..) |name, i| {
+            if (self.buffer.items == name) {
+                return @enumFromInt(i);
             }
-
-            return token;
         }
-
-        if (c == '/' && lexer->buffer.chars[lexer->buffer.len - 2] == '/') {
-            lexer->inside_comment = true;
-            continue;
-        }
-
-        append_char(&lexer->buffer, c);
+        return null;
     }
 
-    token.type = TOKEN_NONE;
-    token.is_empty = true;
-    return token;
-}
+    fn skipWhiteSpace(self: *Self) void {
+        while (self.ptr.* == ' ' or self.ptr.* == '\t' or self.ptr.* == '\n') {
+            if (self.ptr.* == '\n') self.line += 1;
+            self.ptr += 1;
+        }
+    }
 
+    fn readChar(self: *Self) void {
+        self.buffer.append(self.ptr.*);
+        self.ptr += 1;
+    }
 
-void new_section(Section *section, Slide *slide) {
-    size_t prev_text_size = section->text_size;
-    Color32 prev_text_color = section->text_color;
-    ElementAlignment prev_align = section->alignment;
-    Section_array_append(&slide->sections, *section);
-    *section = (Section){0};
-    section->text_size = prev_text_size;
-    section->text_color = prev_text_color;
-    section->alignment = prev_align;
-}
+    fn readNextWord(self: *Self) LexError![]const u8 {
+        self.buffer.clearRetainingCapacity();
+        self.skipWhiteSpace();
 
+        while (self.ptr.* != '\0' and self.ptr.* != ' ' and self.ptr.* != '\t' and self.ptr.* != '\n') {
+            self.readChar();
+        }
+        if (self.buffer.len == 0) return LexError.NoKeywordValue;
+        return self.buffer.items;
+    }
+
+    fn readUntilNewLine(self: *Self) []const u8 {
+        self.buffer.clearRetainingCapacity();
+        self.skipWhiteSpace();
+
+        while (self.ptr.* != '\0' and self.ptr.* != '\n') {
+            self.readChar();
+        }
+        while (self.buffer.getLastOrNull()) |last| {
+            if (last != ' ' and last != '\t') break;
+            self.buffer.pop();
+        }
+        return self.buffer.items;
+    }
+
+    fn next_token(self: *Self) LexError!?data.Token {
+        self.buffer.clearRetainingCapacity();
+        var token = null;
+        self.skipWhiteSpace();
+
+        while (self.ptr.* != '\0') {
+            const next_word = try self.readNextWord();
+
+            if (self.containedKeyword()) |keyword| {
+                token = switch (keyword) {
+                    .text_color => blk: {
+                        const color_string = try self.readNextWord();
+                        const color = data.Color32.fromHex(color_string);
+                        break :blk .{ .text_color = color };
+                    },
+                    .bg => blk: {
+                        const color_string = try self.readNextWord();
+                        const color = data.Color32.fromHex(color_string);
+                        break :blk .{ .bg = color };
+                    },
+                    .slide => .slide,
+                    .centered => .centered,
+                    .left => .left,
+                    .right => .right,
+                    .text => blk: {
+                        _ = self.readUntilNewLine();
+                        var text = String.init(std.heap.page_allocator);
+                        var line = self.readUntilNewLine();
+
+                        while (line.len != 0) {
+                            if (line == "text") break;
+                            text.appendSlice(line);
+                            text.append('\n');
+                            line = self.readUntilNewLine()
+                        } else {
+                            return LexError.NoClosingKeyword;
+                        }
+                        break :blk .{ .text = text };
+                    },
+                    .space => blk: {
+                        const int_string = try self.readNextWord();
+                        break :blk .{ .space = std.fmt.parseInt(usize, int_string, 10) };
+                    },
+                    .text_size => blk: {
+                        const int_string = try self.readNextWord();
+                        break :blk .{ .text_size = std.fmt.parseInt(usize, int_string, 10) };
+                    },
+                    .image => blk: {
+                        const path_slice = try self.readNextWord();
+                        var path = String.init(std.heap.page_allocator);
+                        path.appendSlice(path_slice);
+                        break :blk .{ .image = path };
+                    },
+                }
+                break;
+            } else if (next_word.len >= 2 and next_word[0..2] == "//") {
+                _ = self.readUntilNewLine();
+            } else {
+                return LexError.UnknownKeyword;
+            }
+        }
+        return token;
+    }
+};
+
+pub const SectionData = union {
+    lines: usize,
+    text: []const u8,
+};
+
+pub const SectionType = enum { space, text, image };
+
+pub const ElementAlignment = enum { center, right, left };
+
+pub const Section = struct {
+    text_size: usize,
+    section_type: SectionType,
+    data: SectionData,
+    text_color: Color32,
+    alignment: ElementAlignment,
+};
+
+pub const Slide = struct {
+    background_color: Color32,
+    sections: ArrayList(Section),
+};
+
+pub const SlideShow = struct {
+    slides: ArrayList(Slide),
+    slide_index: usize = 0,
+    title: [:0]const u8,
+
+    const Self = @This();
+
+    pub fn current_slide(self: *Self) *Slide {
+        const slide = &(self.slides.items[self.slide_index]);
+        return slide;
+    }
+};
 
 void parse_slide_show_file(SlideShow *slide_show, EntireFile *file) {
     Lexer lexer = {0};
@@ -292,7 +276,7 @@ void parse_slide_show_file(SlideShow *slide_show, EntireFile *file) {
                 section.text_color = token.color;
                 break;
         }
-    } while (token.type != TOKEN_NONE && token.type != TOKEN_ERROR);
+    } while (token.type != TOKEN_NONE and token.type != TOKEN_ERROR);
 
     if (token.type == TOKEN_NONE) {
         Section_array_append(&slide.sections, section);
@@ -306,12 +290,11 @@ void parse_slide_show_file(SlideShow *slide_show, EntireFile *file) {
         exit(1);
     }
 
-    if (slide_show->slides.len < 1 || slide_show->slides.len > 999) {
+    if (slide_show->slides.len < 1 or slide_show->slides.len > 999) {
         CLIDER_LOG_ERROR("The number of slides has to be between 1 and 999.");
         exit(1);
     }
 }
-
 
 SlideShow slide_show_from_file(const char *file_name) {
     SlideShow slide_show = {0};
@@ -329,7 +312,6 @@ SlideShow slide_show_from_file(const char *file_name) {
     return slide_show;
 }
 
-
 void drop_slide_show(SlideShow *slide_show) {
     for (size_t i = 0; i < slide_show->slides.len; i++) {
         Slide *slide = &slide_show->slides.items[i];
@@ -342,7 +324,6 @@ void drop_slide_show(SlideShow *slide_show) {
     }
     Slide_array_free(&slide_show->slides);
 }
-
 
 void render_slide_show(SlideShow *slide_show, Renderer *renderer) {
     Slide *slide = current_slide(slide_show);
@@ -392,7 +373,6 @@ void render_slide_show(SlideShow *slide_show, Renderer *renderer) {
     flush(renderer);
 }
 
-
 void handle_input(GLFWwindow *window, SlideShow *slide_show, Renderer *renderer) {
     // fullscreen toggle
     if (c.glfwGetKey(window, c.GLFW_KEY_F11) == c.GLFW_PRESS) {
@@ -406,12 +386,12 @@ void handle_input(GLFWwindow *window, SlideShow *slide_show, Renderer *renderer)
         }
     }
     // slide_show_switch
-    if (c.glfwGetKey(window, c.GLFW_KEY_RIGHT) == c.GLFW_PRESS || c.glfwGetKey(window, c.GLFW_KEY_DOWN) == c.GLFW_PRESS) {
+    if (c.glfwGetKey(window, c.GLFW_KEY_RIGHT) == c.GLFW_PRESS or c.glfwGetKey(window, c.GLFW_KEY_DOWN) == c.GLFW_PRESS) {
         if (slide_show->current_slide < slide_show->slides.len - 1) {
             slide_show->current_slide++;
         }
     }
-    if (c.glfwGetKey(window, c.GLFW_KEY_LEFT) == c.GLFW_PRESS || c.glfwGetKey(window, c.GLFW_KEY_UP) == c.GLFW_PRESS) {
+    if (c.glfwGetKey(window, c.GLFW_KEY_LEFT) == c.GLFW_PRESS or c.glfwGetKey(window, c.GLFW_KEY_UP) == c.GLFW_PRESS) {
         if (slide_show->current_slide > 0) {
             slide_show->current_slide--;
         }

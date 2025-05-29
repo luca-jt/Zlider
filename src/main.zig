@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const c = @import("c.zig");
-const data = @import("data.zig");
+const slides = @import("slides.zig");
 const win = @import("window.zig");
 
 pub fn main() !void {
@@ -10,13 +10,13 @@ pub fn main() !void {
     defer args.deinit();
     assert(args.skip()); // skip the program name
 
-    var slide_show: ?data.SlideShow = null;
+    var slide_show: ?slides.SlideShow = null;
     //defer drop_slide_show(&slide_show);
 
     if (args.next()) |title| {
         slide_show = .{
             .title = title,
-            .slides = std.ArrayList(data.Slide).init(std.heap.page_allocator),
+            .slides = std.ArrayList(slides.Slide).init(std.heap.page_allocator),
         };
 
         if (args.skip()) {
