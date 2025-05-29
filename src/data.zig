@@ -58,7 +58,7 @@ pub const SlideShow = struct {
     const Self = @This();
 
     pub fn current_slide(self: *Self) *Slide {
-        const slide = &(self.*.slides.items[self.*.slide_index]);
+        const slide = &(self.slides.items[self.slide_index]);
         return slide;
     }
 };
