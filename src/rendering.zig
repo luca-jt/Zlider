@@ -16,7 +16,7 @@ fn clearScreen(color: data.Color32) void {
 
 fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     const shader = c.glCreateShader(ty);
-    c.glShaderSource(shader, 1, @alignCast(@ptrCast(src)), null);
+    c.glShaderSource(shader, 1, &src, null);
     c.glCompileShader(shader);
 
     var status = c.GL_FALSE;
@@ -255,7 +255,12 @@ pub const Renderer = struct {
     }
 
     pub fn render(self: *Self, slide_show: *SlideShow) !void {
-        const slide = slide_show.currentSlide();
+        const current_slide = slide_show.currentSlide();
+        if (current_slide == null) {
+            clearScreen(data.Color32.new(1, 1, 1, 1));
+            return;
+        }
+        const slide = current_slide.?;
         clearScreen(slide.background_color);
 
         var current_cursor = slide.sections.items[0].text_size; // y position in pixels

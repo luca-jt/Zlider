@@ -266,9 +266,11 @@ pub const SlideShow = struct {
         };
     }
 
-    pub fn currentSlide(self: *Self) *Slide {
-        const slide = &(self.slides.items[self.slide_index]);
-        return slide;
+    pub fn currentSlide(self: *Self) ?*Slide {
+        return if (self.slides.items.len == 0)
+            null
+        else
+            &(self.slides.items[self.slide_index]);
     }
 
     fn newSlide(self: *Self, slide: *Slide, section: *Section) !void {

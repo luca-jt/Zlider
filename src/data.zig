@@ -9,6 +9,17 @@ pub const Color32 = struct {
     b: u8 = 0,
     a: u8 = 0,
 
+    const Self = @This();
+
+    pub fn new(r: u8, g: u8, b: u8, a: u8) Self {
+        return .{
+            .r = r,
+            .g = g,
+            .b = b,
+            .a = a,
+        };
+    }
+
     pub fn toVec4(self: Color32) zlm.Vec4 {
         const r = @as(f32, @floatFromInt(self.r)) / 255.0;
         const g = @as(f32, @floatFromInt(self.g)) / 255.0;
@@ -56,10 +67,10 @@ pub const Token = union(enum) {
 };
 
 pub const vertex_shader: [*:0]const u8 =
-    \\#version 330 core
+    \\#version 450 core
     \\layout(location = 0) in vec4 position;
     \\layout(location = 1) in vec4 color;
-    \\layout(location = 2) in vec2 uv\
+    \\layout(location = 2) in vec2 uv;
     \\layout(location = 3) in float tex_idx;
     \\out vec4 v_color;
     \\out vec2 v_uv;
@@ -75,7 +86,7 @@ pub const vertex_shader: [*:0]const u8 =
 ;
 
 pub const fragment_shader: [*:0]const u8 =
-    \\#version 330 core
+    \\#version 450 core
     \\in vec4 v_color;
     \\in vec2 v_uv;
     \\flat in float v_tex_idx;
