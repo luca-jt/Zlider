@@ -5,14 +5,15 @@ pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
 const HashMap = std.AutoHashMap;
 const data = @import("data.zig");
-const Renderer = @import("rendering.zig").Renderer;
-const window_state = @import("window.zig").window_state;
+const rendering = @import("rendering.zig");
+const win = @import("window.zig");
+const c = @import("c.zig");
 
 fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     const dir = std.fs.cwd();
     const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
     var string = String.fromOwnedSlice(allocator, buffer);
-    string.append('\0'); // do this for lexing pointer stuff
+    string.append(0); // do this for lexing pointer stuff
     return string;
 }
 
@@ -36,7 +37,7 @@ const Lexer = struct {
         return .{
             .buffer = String.init(allocator),
             .allocator = allocator,
-            .ptr: ptr,
+            .ptr = ptr,
         };
     }
 
@@ -69,7 +70,7 @@ const Lexer = struct {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
 
-        while (self.ptr.* != '\0' and self.ptr.* != ' ' and self.ptr.* != '\t' and self.ptr.* != '\n') {
+        while (self.ptr.* != 0 and self.ptr.* != ' ' and self.ptr.* != '\t' and self.ptr.* != '\n') {
             self.readChar();
         }
         if (self.buffer.len == 0) {
@@ -83,7 +84,7 @@ const Lexer = struct {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
 
-        while (self.ptr.* != '\0' and self.ptr.* != '\n') {
+        while (self.ptr.* != 0 and self.ptr.* != '\n') {
             self.readChar();
         }
         while (self.buffer.getLastOrNull()) |last| {
@@ -98,7 +99,7 @@ const Lexer = struct {
         var token = null;
         self.skipWhiteSpace();
 
-        while (self.ptr.* != '\0') {
+        while (self.ptr.* != 0) {
             const next_word = try self.readNextWord();
 
             if (self.containedKeyword()) |keyword| {
@@ -123,10 +124,10 @@ const Lexer = struct {
                         var line = self.readUntilNewLine();
 
                         while (line.len != 0) {
-                            if (line == "text") break;
+                            if (std.mem.eql(u8, line, "text")) break;
                             text.appendSlice(line);
                             text.append('\n');
-                            line = self.readUntilNewLine()
+                            line = self.readUntilNewLine();
                         } else {
                             print("Line: {} | ", self.line);
                             return SlidesParseError.LexerNoClosingKeyword;
@@ -147,9 +148,9 @@ const Lexer = struct {
                         path.appendSlice(path_slice);
                         break :blk .{ .image = path };
                     },
-                }
+                };
                 break;
-            } else if (next_word.len >= 2 and next_word[0..2] == "//") {
+            } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
                 _ = self.readUntilNewLine();
             } else {
                 print("Line: {} | ", self.line);
@@ -178,13 +179,13 @@ pub const Section = struct {
 };
 
 pub const Slide = struct {
-    background_color: Color32 = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+    background_color: data.Color32 = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
     sections: ArrayList(Section),
 
     const Self = @This();
 
     fn init(allocator: Allocator) Self {
-        return .{ .sections = ArrayList(Section).init(self.allocator) };
+        return .{ .sections = ArrayList(Section).init(allocator) };
     }
 };
 
@@ -200,14 +201,14 @@ pub const SlideShow = struct {
         return .{
             .slides = ArrayList(Slide).init(allocator),
             .allocator = allocator,
-        }
+        };
     }
 
     pub fn deinit(self: Self) void {
         for (&self.slides) |*slide| {
             for (&slide.sections) |section| {
                 switch (section.section_type) {
-                    .image, .text => section.data.text.deinit();
+                    .image, .text => section.data.text.deinit(),
                     else => {},
                 }
             }
@@ -228,7 +229,7 @@ pub const SlideShow = struct {
         for (&self.slides) |*slide| {
             for (&slide.sections) |section| {
                 switch (section.section_type) {
-                    .image, .text => section.data.text.deinit();
+                    .image, .text => section.data.text.deinit(),
                     else => {},
                 }
             }
@@ -323,7 +324,7 @@ pub const SlideShow = struct {
                     }
                     section.section_type = .image;
                     section.data = .{ .text = path };
-                    section.data.text.append('\0'); // for c interop later on
+                    section.data.text.append(0); // for c interop later on
                     section_has_data = true;
                 },
             }
@@ -355,16 +356,16 @@ fn newSection(slide: *Slide, section: *Section) void {
     section.alignment = alignment;
 }
 
-pub fn handle_input(window: *c.GLFWwindow, slide_show: *SlideShow, renderer: *Renderer) !void {
+pub fn handleInput(window: *c.GLFWwindow, slide_show: *SlideShow, renderer: *rendering.Renderer) !void {
     // fullscreen toggle
     if (c.glfwGetKey(window, c.GLFW_KEY_F11) == c.GLFW_PRESS) {
         const monitor = c.glfwGetPrimaryMonitor();
         if (!c.glfwGetWindowMonitor(window)) {
-            update_window_attributes(window);
+            win.updateWindowAttributes(window);
             const mode = c.glfwGetVideoMode(monitor);
             c.glfwSetWindowMonitor(window, monitor, 0, 0, mode.width, mode.height, c.GLFW_DONT_CARE);
         } else {
-            c.glfwSetWindowMonitor(window, null, window_state.win_pos_x, window_state.win_pos_y, window_state.win_size_x, window_state.win_size_y, c.GLFW_DONT_CARE);
+            c.glfwSetWindowMonitor(window, null, win.window_state.win_pos_x, win.window_state.win_pos_y, win.window_state.win_size_x, win.window_state.win_size_y, c.GLFW_DONT_CARE);
         }
     }
     // slide_show_switch
@@ -383,7 +384,7 @@ pub fn handle_input(window: *c.GLFWwindow, slide_show: *SlideShow, renderer: *Re
         const current_slide_idx = slide_show.slide_index;
         slide_show.slide_index = 0;
 
-        const slide_mem_size: usize = @intCast(window_state.vp_size_x) * @intCast(window_state.vp_size_y) * 4;
+        const slide_mem_size = @as(usize, @intCast(win.window_state.vp_size_x)) * @as(usize, @intCast(win.window_state.vp_size_y)) * 4;
         const slide_mem = try std.heap.page_allocator.allocSentinel(u8, slide_mem_size, 0);
         defer std.heap.page_allocator.free(slide_mem);
 
@@ -392,18 +393,19 @@ pub fn handle_input(window: *c.GLFWwindow, slide_show: *SlideShow, renderer: *Re
         var slide_file_name = String.init(std.heap.page_allocator);
         defer slide_file_name.deinit();
         slide_file_name.appendSlice(slide_show.title);
-        slide_file_name.appendSlice("_000\0");
+        slide_file_name.appendSlice("_000");
+        slide_file_name.append(0);
 
-        var number_slice = slide_file_name.items[slide_file_name.len-4..slide_file_name.len-1];
+        const number_slice = slide_file_name.items[slide_file_name.len-4..slide_file_name.len-1];
 
         while (slide_show.slide_index < slide_show.slides.len) {
             const slide_number = slide_show.slide_index + 1;
             _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
 
             renderer.render(slide_show);
-            copy_frame_buffer_to_memory(slide_mem);
+            rendering.copyFrameBufferToMemory(slide_mem);
 
-            c.stbi_write_png(slide_file_name.items, window_state.vp_size_x, window_state.vp_size_y, compression_level, slide_mem, 4);
+            c.stbi_write_png(slide_file_name.items, win.window_state.vp_size_x, win.window_state.vp_size_y, compression_level, slide_mem, 4);
             slide_show.slide_index += 1;
         }
 

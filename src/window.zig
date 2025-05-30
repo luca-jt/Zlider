@@ -11,16 +11,16 @@ const WindowState = packed struct {
     vp_size_x: i32 = 0,
     vp_size_y: i32 = 0,
 };
-var window_state: WindowState = .{};
+pub var window_state: WindowState = .{};
 
-const viewport_ratio: f32 = 16.0 / 9.0;
+pub const viewport_ratio: f32 = 16.0 / 9.0;
 
-pub fn update_window_attributes(window: *c.GLFWwindow) void {
+pub fn updateWindowAttributes(window: *c.GLFWwindow) void {
     c.glfwGetWindowPos(window, &window_state.win_pos_x, &window_state.win_pos_y);
     c.glfwGetWindowSize(window, &window_state.win_size_x, &window_state.win_size_y);
 }
 
-fn resize_viewport(width: u32, height: u32) void {
+fn resizeViewport(width: u32, height: u32) void {
     var w = width;
     var h = height;
     var vp_x: u32 = 0;
@@ -41,7 +41,7 @@ fn resize_viewport(width: u32, height: u32) void {
     c.glScissor(@intCast(vp_x), @intCast(vp_y), @intCast(w), @intCast(h));
 }
 
-pub fn init_window(width: u32, height: u32, title: [:0]const u8) *c.GLFWwindow {
+pub fn initWindow(width: u32, height: u32, title: [:0]const u8) *c.GLFWwindow {
     if (c.glfwInit() == c.GL_FALSE) {
         @panic("Failed to initialize GLFW.");
     }
@@ -63,31 +63,31 @@ pub fn init_window(width: u32, height: u32, title: [:0]const u8) *c.GLFWwindow {
         @panic("Failed to initialize GLAD.");
     }
 
-    resize_viewport(width, height);
+    resizeViewport(width, height);
 
     return window;
 }
 
-pub fn close_window(window: *c.GLFWwindow) void {
+pub fn closeWindow(window: *c.GLFWwindow) void {
     c.glfwDestroyWindow(window);
     c.glfwTerminate();
 }
 
-fn framebuffer_size_callback(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
-    resize_viewport(@intCast(width), @intCast(height));
+fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
+    resizeViewport(@intCast(width), @intCast(height));
     c.glGetIntegerv(c.GL_VIEWPORT, &window_state.vp_pos_x); // this overwrites both viewport position and size
     c.glfwGetWindowSize(window, &window_state.win_size_x, &window_state.win_size_y);
 }
 
-fn window_pos_callback(window: ?*c.GLFWwindow, xpos: c_int, ypos: c_int) callconv(.c) void {
+fn windowPosCallback(window: ?*c.GLFWwindow, xpos: c_int, ypos: c_int) callconv(.c) void {
     _ = xpos; // to suppress errors
     _ = ypos;
     c.glfwGetWindowPos(window, &window_state.win_pos_x, &window_state.win_pos_y);
 }
 
-pub fn set_event_config(window: *c.GLFWwindow) void {
+pub fn setEventConfig(window: *c.GLFWwindow) void {
     c.glfwSetInputMode(window, c.GLFW_LOCK_KEY_MODS, c.GLFW_TRUE);
     c.glfwSetInputMode(window, c.GLFW_STICKY_KEYS, c.GLFW_TRUE);
-    _ = c.glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    _ = c.glfwSetWindowPosCallback(window, window_pos_callback);
+    _ = c.glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+    _ = c.glfwSetWindowPosCallback(window, windowPosCallback);
 }

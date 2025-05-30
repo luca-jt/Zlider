@@ -1,7 +1,7 @@
 const std = @import("std");
 pub const String = std.ArrayList(u8);
 const c = @import("c.zig");
-const linalg = @import("linalg.zig");
+const zlm = @import("zlm");
 
 pub const Color32 = struct {
     r: u8 = 0,
@@ -9,21 +9,21 @@ pub const Color32 = struct {
     b: u8 = 0,
     a: u8 = 0,
 
-    pub fn toVec4(self: Color32) linalg.Vec4 {
+    pub fn toVec4(self: Color32) zlm.Vec4 {
         const r = @as(f32, @floatFromInt(self.r)) / 255.0;
         const g = @as(f32, @floatFromInt(self.g)) / 255.0;
         const b = @as(f32, @floatFromInt(self.b)) / 255.0;
         const a = @as(f32, @floatFromInt(self.a)) / 255.0;
-        return .{ r, g, b, a };
+        return zlm.vec4(r, g, b, a);
     }
 
     pub fn fromHex(hex: []const u8) Color32 {
         const number = std.fmt.parseInt(u32, hex, 16);
-        const r = @intCast(u8, (number & 0xFF000000) >> 24);
-        const g = @intCast(u8, (number & 0x00FF0000) >> 16);
-        const b = @intCast(u8, (number & 0x0000FF00) >> 8);
-        const a = @intCast(u8, (number & 0x000000FF));
-        return .{ r, g, b, a }
+        const r: u8 = @intCast((number & 0xFF000000) >> 24);
+        const g: u8 = @intCast((number & 0x00FF0000) >> 16);
+        const b: u8 = @intCast((number & 0x0000FF00) >> 8);
+        const a: u8 = @intCast((number & 0x000000FF));
+        return .{ r, g, b, a };
     }
 };
 
@@ -91,6 +91,18 @@ pub const fragment_shader =
     \\}
 ;
 
-pub const plane_vertices = [4]linalg.Vec3{ .{ -0.5, -0.5, 0.0 }, .{ 0.5, 0.5, 0.0 }, .{ -0.5, 0.5, 0.0 }, .{ 0.5, -0.5, 0.0 } };
-pub const plane_uvs = [4]linalg.Vec2{ .{ 0.0, 1.0 }, .{ 1.0, 0.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 } };
+pub const plane_vertices = [4]zlm.Vec3{
+    zlm.vec3(-0.5, -0.5, 0.0),
+    zlm.vec3(0.5, 0.5, 0.0),
+    zlm.vec3(-0.5, 0.5, 0.0),
+    zlm.vec3(0.5, -0.5, 0.0)
+};
+
+pub const plane_uvs = [4]zlm.Vec2{
+    zlm.vec2(0.0, 1.0),
+    zlm.vec2(1.0, 0.0),
+    zlm.vec2(0.0, 0.0),
+    zlm.vec2(1.0, 1.0)
+};
+
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };

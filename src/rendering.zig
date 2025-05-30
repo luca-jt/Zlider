@@ -3,16 +3,18 @@ const data = @import("data.zig");
 const std = @import("std");
 const HashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
-const viewport_ratio = @import("window.zig").viewport_ratio;
+const Allocator = std.mem.Allocator;
+const win = @import("window.zig");
 const SlideShow = @import("slides.zig").SlideShow;
+const zlm = @import("zlm");
 
-void clear_screen(color: data.Color32) void {
+fn clearScreen(color: data.Color32) void {
     const float_color = color.toVec4();
     c.glClearColor(float_color.x, float_color.y, float_color.z, float_color.w);
     c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 }
 
-fn compile_shader(src: [:0]const c.GLchar, ty: c.GLenum) c.GLuint {
+fn compileShader(src: [:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     const shader = c.glCreateShader(ty);
     c.glShaderSource(shader, 1, src, null);
     c.glCompileShader(shader);
@@ -23,7 +25,7 @@ fn compile_shader(src: [:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetShaderiv(shader, c.GL_INFO_LOG_LENGTH, &len);
-        var buf = std.heap.page_allocator.allocSentinel(c.GLchar, @intCast(len) * @sizeOf(c.GLchar) + 1, 0);
+        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0);
         defer std.heap.page_allcator.free(buf);
         c.glGetShaderInfoLog(shader, len, null, buf);
         @panic(buf);
@@ -31,7 +33,7 @@ fn compile_shader(src: [:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     return shader;
 }
 
-fn link_program(vs: c.GLuint, fs: c.GLuint) c.GLuint {
+fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     const program = c.glCreateProgram();
     c.glAttachShader(program, vs);
     c.glAttachShader(program, fs);
@@ -48,7 +50,7 @@ fn link_program(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetProgramiv(program, c.GL_INFO_LOG_LENGTH, &len);
-        var buf = std.heap.page_allocator.allocSentinel(c.GLchar, @intCast(len) * @sizeOf(c.GLchar) + 1, 0);
+        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0);
         defer std.heap.page_allcator.free(buf);
         c.glGetProgramInfoLog(program, len, null, buf);
         @panic(buf);
@@ -56,15 +58,15 @@ fn link_program(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     return program;
 }
 
-fn create_shader(vert: [:0]const c.GLchar, frag: [:0]const c.GLchar) c.GLuint {
-    const vs = compile_shader(vert, c.GL_VERTEX_SHADER);
-    const fs = compile_shader(frag, c.GL_FRAGMENT_SHADER);
-    const id = link_program(vs, fs);
+fn createShader(vert: [:0]const c.GLchar, frag: [:0]const c.GLchar) c.GLuint {
+    const vs = compileShader(vert, c.GL_VERTEX_SHADER);
+    const fs = compileShader(frag, c.GL_FRAGMENT_SHADER);
+    const id = linkProgram(vs, fs);
     c.glBindFragDataLocation(id, 0, "out_color");
     return id;
 }
 
-fn generate_texture(data: [:0]const u8, width: c.GLint, height: c.GLint) c.GLuint {
+fn generateTexture(mem: [:0]const u8, width: c.GLint, height: c.GLint) c.GLuint {
     var tex_id: c.GLuint = 0;
     c.glGenTextures(1, &tex_id);
     c.glBindTexture(c.GL_TEXTURE_2D, tex_id);
@@ -77,7 +79,7 @@ fn generate_texture(data: [:0]const u8, width: c.GLint, height: c.GLint) c.GLuin
         0,
         c.GL_RGBA,
         c.GL_UNSIGNED_BYTE,
-        data
+        mem
     );
     c.glGenerateMipmap(c.GL_TEXTURE_2D);
     c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
@@ -88,7 +90,7 @@ fn generate_texture(data: [:0]const u8, width: c.GLint, height: c.GLint) c.GLuin
     return tex_id;
 }
 
-fn generate_white_texture() c.GLuint {
+fn generateWhiteTexture() c.GLuint {
     var white_texture: c.GLuint = 0;
     c.glGenTextures(1, &white_texture);
     c.glBindTexture(c.GL_TEXTURE_2D, white_texture);
@@ -107,23 +109,23 @@ fn generate_white_texture() c.GLuint {
     return white_texture;
 }
 
-void copy_frame_buffer_to_memory(memory: [:0]u8) {
+pub fn copyFrameBufferToMemory(memory: [:0]u8) void {
     c.glReadBuffer(c.GL_FRONT); // TODO: or GL_BACK?
     // TODO: (0,0) of the window or the viewport?
-    c.glReadPixels(0, 0, window_state.vp_size_x, window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, memory);
+    c.glReadPixels(0, 0, win.window_state.vp_size_x, win.window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, memory);
     // TODO: flip the image vertically?
 }
 
 const Vertex = packed struct {
-    position: Vec3,
-    color: Vec4,
-    uv: Vec2,
+    position: zlm.Vec3,
+    color: zlm.Vec4,
+    uv: zlm.Vec2,
     tex_idx: c.GLfloat,
 };
 
 pub const Renderer = struct {
-    shader: c.GLuint = create_shader(VERTEX_SHADER, FRAGMENT_SHADER),
-    white_texture: c.GLuint = generate_white_texture(),
+    shader: c.GLuint,
+    white_texture: c.GLuint,
     vao: c.GLuint = 0,
     vbo: c.GLuint = 0,
     ibo: c.GLuint = 0,
@@ -131,31 +133,31 @@ pub const Renderer = struct {
     obj_buffer: ArrayList(Vertex),
     all_tex_ids: ArrayList(c.GLuint),
     max_num_meshes: usize = 10,
-    projection: Mat4 = MatrixOrtho(-viewport_ratio, viewport_ratio, -1.0, 1.0, 0.1, 2.0), // TODO
-    view: Mat4 = MatrixLookAt((Vector3){0.0f, 0.0f, 1.0f}, (Vector3){0.0f, 0.0f, 0.0f}, (Vector3){0.0f, 1.0f, 0.0f}), // TODO
+    projection: zlm.Mat4 = zlm.Mat4.createOrthogonal(-win.viewport_ratio, win.viewport_ratio, -1.0, 1.0, 0.1, 2.0),
+    view: zlm.Mat4 = zlm.Mat4.createLookAt(zlm.Vec3.unitZ, zlm.Vec3.zero, zlm.Vec3.unitY),
     textures: HashMap([]const u8, c.GLuint),
 
     const Self = @This();
 
     pub fn init(allocator: Allocator) !Self {
         var r = Self{
+            .shader = createShader(data.vertex_shader, data.fragment_shader),
+            .white_texture = generateWhiteTexture(),
             .obj_buffer = ArrayList(Vertex).init(allocator),
             .all_tex_ids = ArrayList(c.GLuint).init(allocator),
             .textures = HashMap([]const u8, c.GLuint).init(allocator),
         };
-        usingnamespace r;
 
-        c.glGenVertexArrays(1, &vao);
-        c.glBindVertexArray(vao);
-        c.glGenBuffers(1, &vbo);
-        c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
+        c.glGenVertexArrays(1, &r.vao);
+        c.glBindVertexArray(r.vao);
+        c.glGenBuffers(1, &r.vbo);
+        c.glBindBuffer(c.GL_ARRAY_BUFFER, r.vbo);
         c.glBufferData(
             c.GL_ARRAY_BUFFER,
-            plane_mesh_num_vertices * max_num_meshes * @sizeOf(Vertex),
+            data.plane_vertices.len * r.max_num_meshes * @sizeOf(Vertex),
             null,
             c.GL_DYNAMIC_DRAW
         );
-
         c.glEnableVertexAttribArray(0);
         c.glVertexAttribPointer(
             0,
@@ -165,7 +167,6 @@ pub const Renderer = struct {
             @sizeOf(Vertex),
             @offsetOf(Vertex, "position")
         );
-
         c.glEnableVertexAttribArray(1);
         c.glVertexAttribPointer(
             1,
@@ -175,7 +176,6 @@ pub const Renderer = struct {
             @sizeOf(Vertex),
             @offsetOf(Vertex, "color")
         );
-
         c.glEnableVertexAttribArray(2);
         c.glVertexAttribPointer(
             2,
@@ -185,7 +185,6 @@ pub const Renderer = struct {
             @sizeOf(Vertex),
             @offsetOf(Vertex, "uv")
         );
-
         c.glEnableVertexAttribArray(3);
         c.glVertexAttribPointer(
             3,
@@ -196,19 +195,19 @@ pub const Renderer = struct {
             @offsetOf(Vertex, "tex_idx")
         );
 
-        const num_indices = plane_mesh_num_indices * max_num_meshes;
+        const num_indices = data.plane_indices.len * r.max_num_meshes;
         var indices = try ArrayList(c.GLuint).initCapacity(allocator, num_indices);
         defer indices.deinit();
 
         for (0..num_indices) |i| {
-            indices.appendAssumeCapactiy(data.plane_indices[i % plane_mesh_num_indices] + plane_mesh_num_vertices * (i / plane_mesh_num_indices));
+            indices.appendAssumeCapactiy(data.plane_indices[i % data.plane_indices.len] + data.plane_vertices.len * (i / data.plane_indices.len));
         }
 
-        c.glGenBuffers(1, &ibo);
-        c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, ibo);
+        c.glGenBuffers(1, &r.ibo);
+        c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, r.ibo);
         c.glBufferData(
             c.GL_ELEMENT_ARRAY_BUFFER,
-            plane_mesh_num_indices * max_num_meshes * @sizeOf(c.GLuint),
+            data.plane_indices.len * r.max_num_meshes * @sizeOf(c.GLuint),
             indices.items,
             c.GL_STATIC_DRAW
         );
@@ -242,13 +241,13 @@ pub const Renderer = struct {
                 var width: c_int = undefined;
                 var height: c_int = undefined;
                 var num_channels: c_int = undefined;
-                const data = c.stbi_load(section.text.items, &width, &height, &num_channels, 4);
+                const image_data = c.stbi_load(section.text.items, &width, &height, &num_channels, 4);
                 if (num_channels != 4) {
                     @panic("Image source does not have RGBA channels.");
                 }
 
-                const tex_id = generate_texture(data, width, height);
-                c.stbi_image_free(data);
+                const tex_id = generateTexture(image_data, width, height);
+                c.stbi_image_free(image_data);
                 self.textures.insert(section.text.items, tex_id);
             }
         }
@@ -256,13 +255,40 @@ pub const Renderer = struct {
 
     pub fn render(self: *Self, slide_show: *SlideShow) void {
         const slide = slide_show.current_slide();
-        clear_screen(slide.background_color);
+        clearScreen(slide.background_color);
 
         const current_cursor = slide.sections.items[0].text_size; // y position in pixels
         const line_spacing: usize = 2; // TODO: will be set in the slide files in the future
 
         for (&slide.sections.items) |section| {
-            // TODO
+            const scale_factor = @as(f32, @floatFromInt(section.text_size)) / @as(f32, @floatFromInt(win.window_state.vp_size_y));
+            const image_scale = zlm.Mat4.createScale(scale_factor, scale_factor, scale_factor);
+
+            switch (section.section_type) {
+                .space => {
+                    current_cursor += section.text_size;
+                    current_cursor += line_spacing;
+                },
+                .text => {
+                    const position = zlm.Vec3.zero; // TODO
+                    const trafo = zlm.Mat4.mul(zlm.Mat4.createTranslationXYZ(position.x, position.y, position.z), image_scale);
+                    const tex_id: c.GLuint = 0; // TODO
+                    for (section.text.items) |char| {
+                        if (char == '\n') {
+                            current_cursor += line_spacing; // TODO: other special chars and an x axis cursor
+                        }
+                        self.addTexQuad(trafo, tex_id);
+                    }
+                    current_cursor += line_spacing;
+                },
+                .image => {
+                    const position = zlm.Vec3.zero; // TODO
+                    const trafo = zlm.Mat4.mul(zlm.Mat4.createTranslationXYZ(position.x, position.y, position.z), image_scale);
+                    const tex_id = self.textures.get(section.text.items).?;
+                    self.addTexQuad(trafo, tex_id);
+                    current_cursor += line_spacing;
+                },
+            }
         }
 
         self.flush();
@@ -294,7 +320,6 @@ pub const Renderer = struct {
         // bind textures
         for (self.all_tex_ids.items, 0..) |tex_id, i| {
             const unit: c.GLenum = @intCast(i);
-            const tex_id = self.all_tex_ids.items[i];
             c.glActiveTexture(c.GL_TEXTURE1 + unit);
             c.glBindTexture(c.GL_TEXTURE_2D, tex_id);
         }
@@ -311,107 +336,59 @@ pub const Renderer = struct {
         self.index_count = 0;
         self.obj_buffer.clearRetainingCapacity();
     }
+
+    fn addTexQuad(self: *Self, trafo: zlm.Mat4, tex_id: c.GLuint) bool {
+        // determine texture index
+        var tex_idx: c.GLfloat = -1.0;
+        for (0..self.all_tex_ids.len) |i| {
+            const id = self.all_tex_ids.items[i];
+            if (id == tex_id) {
+                tex_idx = @floatFromInt(i + 1);
+                break;
+            }
+        }
+        if (tex_idx == -1.0) {
+            if (self.all_tex_ids.len >= max_texture_count - 1) {
+                // start a new batch if out of texture slots
+                return false;
+            }
+            tex_idx = @floatFromInt(self.all_tex_ids.len + 1);
+            self.all_tex_ids.append(tex_id);
+        }
+        if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
+            return false;
+        }
+        // copy mesh vertex data into the object buffer
+        for (0..data.plane_vertices.len) |i| {
+            const v4 = zlm.vec4(data.plane_vertices[i].x, data.plane_vertices[i].y, data.plane_vertices[i].z, 1.0);
+            self.obj_buffer.append(.{
+                .position = v4.transform(trafo),
+                .color = zlm.Vec4.all(1.0),
+                .uv = data.plane_uvs[i],
+                .tex_idx = tex_idx,
+            });
+        }
+        self.index_count += data.plane_indices.len;
+        return true;
+    }
+
+    fn addColorQuad(self: Self, trafo: zlm.Mat4, color: data.Color32) bool {
+        if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
+            return false;
+        }
+        // copy mesh vertex data into the object buffer
+        for (0..data.plane_vertices.len) |i| {
+            const v4 = zlm.vec4(data.plane_vertices[i].x, data.plane_vertices[i].y, data.plane_vertices[i].z, 1.0);
+            self.obj_buffer.append(.{
+                .position = v4.transform(trafo),
+                .color = color.toVec4(),
+                .uv = data.plane_uvs[i],
+                .tex_idx = 0.0, // white texture
+            });
+        }
+        self.index_count += data.plane_indices.len;
+        return true;
+    }
 };
 
 const max_texture_count: usize = 32;
-const plane_mesh_num_vertices: usize = 4;
-const plane_mesh_num_indices: usize = 6;
-
-
-void render_slide_show(SlideShow *slide_show, Renderer *renderer) {
-
-    for (Section *section = slide->sections.items; section < section + slide->sections.len; section++) {
-        const float scale_factor = (float)section->text_size / (float)window_state.vp_size[1];
-        const Matrix image_scale = MatrixScale(scale_factor, scale_factor, scale_factor);
-
-        switch (section->type) {
-            case SPACE_SECTION:
-            {
-                current_cursor += section->text_size;
-                current_cursor += line_spacing;
-                break;
-            }
-            case TEXT_SECTION:
-            {
-                Vector3 position = {0}; // TODO
-                Matrix trafo = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), image_scale);
-                GLuint tex_id = 0; // TODO
-                for (const char *ptr = section->text; *ptr; ptr++) {
-                    if (*ptr == '\n') {
-                        current_cursor += line_spacing; // TODO: other special chars and an x axis cursor
-                    }
-                    add_tex_quad(renderer, trafo, tex_id);
-                }
-                current_cursor += line_spacing;
-                break;
-            }
-            case IMAGE_SECTION:
-            {
-                Vector3 position = {0}; // TODO
-                Matrix trafo = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), image_scale);
-                int64_t id_result = texture_table_get(&renderer->textures, section->text);
-                CLIDER_ASSERT(id_result != -1, "Corrupted texture id.");
-                GLuint tex_id = (GLuint)id_result;
-                add_tex_quad(renderer, trafo, tex_id);
-                current_cursor += line_spacing;
-                break;
-            }
-        }
-    }
-    flush(renderer);
-}
-
-bool add_tex_quad(Renderer *renderer, Matrix trafo, c.GLuint tex_id) {
-    // determine texture index
-    c.GLfloat tex_idx = -1.0;
-    for (size_t i = 0; i < renderer->all_tex_ids.len; i++) {
-        c.GLuint id = renderer->all_tex_ids.items[i];
-        if (id == tex_id) {
-            tex_idx = (c.GLfloat)(i + 1);
-            break;
-        }
-    }
-    if (tex_idx == -1.0) {
-        if (renderer->all_tex_ids.len >= MAX_TEXTURE_COUNT - 1) {
-            // start a new batch if out of texture slots
-            return false;
-        }
-        tex_idx = (c.GLfloat)(renderer->all_tex_ids.len + 1);
-        GLuint_array_append(&renderer->all_tex_ids, tex_id);
-    }
-    if ((size_t)renderer->index_count >= plane_meshj_num_indices * renderer->max_num_meshes) {
-        return false;
-    }
-    // copy mesh vertex data into the object buffer
-    for (size_t i = 0; i < plane_mesh_num_vertices; i++) {
-        Vertex vertex;
-        vertex.position = Vector3Transform(PLANE_VERTICES[i], trafo);
-        Vector4 vert_color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        vertex.color = vert_color;
-        vertex.uv = PLANE_UVS[i];
-        vertex.tex_idx = tex_idx;
-        Vertex_array_append(&renderer->obj_buffer, vertex);
-    }
-    renderer->index_count += plane_meshj_num_indices;
-
-    return true;
-}
-
-bool add_color_quad(Renderer *renderer, Matrix trafo, Color32 color) {
-    if ((size_t)renderer->index_count >= plane_meshj_num_indices * renderer->max_num_meshes) {
-        return false;
-    }
-
-    // copy mesh vertex data into the object buffer
-    for (size_t i = 0; i < plane_mesh_num_vertices; i++) {
-        Vertex vertex;
-        vertex.position = Vector3Transform(PLANE_VERTICES[i], trafo);
-        vertex.color = rgba_to_float(color);
-        vertex.uv = PLANE_UVS[i];
-        vertex.tex_idx = 0.0; // white texture
-        Vertex_array_append(&renderer->obj_buffer, vertex);
-    }
-    renderer->index_count += plane_meshj_num_indices;
-
-    return true;
-}

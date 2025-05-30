@@ -15,9 +15,9 @@ pub fn main() !void {
     var slide_show = slides.SlideShow.init(std.heap.page_allocator);
     defer slide_show.deinit();
 
-    const window = win.init_window(800, 600, slide_show.title);
-    defer win.close_window(window);
-    win.set_event_config(window);
+    const window = win.initWindow(800, 600, slide_show.title);
+    defer win.closeWindow(window);
+    win.setEventConfig(window);
 
     var renderer = try rendering.Renderer.init(std.heap.page_allocator);
     defer renderer.deinit();
@@ -32,7 +32,7 @@ pub fn main() !void {
     }
 
     while (c.glfwWindowShouldClose(window) == c.GL_FALSE) {
-        handle_input(window, &slide_show, &renderer);
+        slides.handleInput(window, &slide_show, &renderer);
         renderer.render(&slide_show);
         c.glfwSwapBuffers(window);
         c.glfwWaitEvents();
