@@ -14,9 +14,9 @@ fn clearScreen(color: data.Color32) void {
     c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 }
 
-fn compileShader(src: [:0]const c.GLchar, ty: c.GLenum) c.GLuint {
+fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     const shader = c.glCreateShader(ty);
-    c.glShaderSource(shader, 1, src, null);
+    c.glShaderSource(shader, 1, @alignCast(@ptrCast(src)), null);
     c.glCompileShader(shader);
 
     var status = c.GL_FALSE;
@@ -25,7 +25,7 @@ fn compileShader(src: [:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetShaderiv(shader, c.GL_INFO_LOG_LENGTH, &len);
-        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0);
+        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
         defer std.heap.page_allcator.free(buf);
         c.glGetShaderInfoLog(shader, len, null, buf);
         @panic(buf);
@@ -50,7 +50,7 @@ fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetProgramiv(program, c.GL_INFO_LOG_LENGTH, &len);
-        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0);
+        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
         defer std.heap.page_allcator.free(buf);
         c.glGetProgramInfoLog(program, len, null, buf);
         @panic(buf);
@@ -58,7 +58,7 @@ fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     return program;
 }
 
-fn createShader(vert: [:0]const c.GLchar, frag: [:0]const c.GLchar) c.GLuint {
+fn createShader(vert: [*:0]const c.GLchar, frag: [*:0]const c.GLchar) c.GLuint {
     const vs = compileShader(vert, c.GL_VERTEX_SHADER);
     const fs = compileShader(frag, c.GL_FRAGMENT_SHADER);
     const id = linkProgram(vs, fs);
@@ -104,7 +104,7 @@ fn generateWhiteTexture() c.GLuint {
         0,
         c.GL_RGBA,
         c.GL_UNSIGNED_BYTE,
-        white_color_data
+        &white_color_data
     );
     return white_texture;
 }
@@ -308,8 +308,8 @@ pub const Renderer = struct {
         );
 
         // bind uniforms
-        c.glUniformMatrix4fv(0, 1, c.GL_FALSE, &self.projection);
-        c.glUniformMatrix4fv(4, 1, c.GL_FALSE, &self.view);
+        c.glUniformMatrix4fv(0, 1, c.GL_FALSE, &self.projection.transpose().fields[0]);
+        c.glUniformMatrix4fv(4, 1, c.GL_FALSE, &self.view.transpose().fields[0]);
         for (0..max_texture_count) |i| {
             c.glUniform1i(8 + i, i);
         }

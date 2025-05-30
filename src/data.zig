@@ -55,7 +55,7 @@ pub const Token = union(enum) {
     image: String,
 };
 
-pub const vertex_shader =
+pub const vertex_shader: [*:0]const u8 =
     \\#version 330 core
     \\layout(location = 0) in vec3 position;
     \\layout(location = 1) in vec4 color;
@@ -74,7 +74,7 @@ pub const vertex_shader =
     \\}
 ;
 
-pub const fragment_shader =
+pub const fragment_shader: [*:0]const u8 =
     \\#version 330 core
     \\in vec4 v_color;
     \\in vec2 v_uv;

@@ -32,7 +32,7 @@ pub fn main() !void {
     }
 
     while (c.glfwWindowShouldClose(window) == c.GL_FALSE) {
-        slides.handleInput(window, &slide_show, &renderer);
+        try slides.handleInput(window, &slide_show, &renderer);
         renderer.render(&slide_show);
         c.glfwSwapBuffers(window);
         c.glfwWaitEvents();
