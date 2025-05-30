@@ -12,10 +12,7 @@
 
     .minimum_zig_version = "0.14.1",
     .dependencies = .{
-        .zlm = .{
-            .url = "git+https://github.com/ziglibs/zlm.git#35b76fae19f9d0a1ed541db621d7c4b3e266087e",
-            .hash = "zlm-0.1.0-AAAAAPGfAAA0KsMzll3pFfdKhCXkhI_-RoUtoOR4kQP5",
-        },
+        // placeholder
     },
     .paths = .{
         "build.zig",

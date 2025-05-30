@@ -10,13 +10,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const zlm_mod = b.dependency("zlm", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("zlm");
-
-    exe_mod.addImport("zlm", zlm_mod);
-
     const exe = b.addExecutable(.{
         .name = "Zlider",
         .root_module = exe_mod,

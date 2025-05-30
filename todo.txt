@@ -3,4 +3,4 @@ slide file hot reloading
 font option + embed font file
 line spacing
 render the slides with respecting the return values of the render funcions
-compatible linalg lib
+change matrices to column major
