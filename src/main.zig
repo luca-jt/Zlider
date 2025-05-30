@@ -1,20 +1,18 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const c = @import("c.zig");
 const slides = @import("slides.zig");
 const win = @import("window.zig");
 const rendering = @import("rendering.zig");
 
 pub fn main() !void {
-    var arg_allocator = std.heap.GeneralPurposeAllocator(.{}).init;
-    var args = try std.process.argsWithAllocator(arg_allocator.allocator());
+    var args = try std.process.argsWithAllocator(std.heap.page_allocator);
     defer args.deinit();
-    assert(args.skip()); // skip the program name
+    std.debug.assert(args.skip()); // skip the program name
 
     var slide_show = slides.SlideShow.init(std.heap.page_allocator);
     defer slide_show.deinit();
 
-    const window = win.initWindow(800, 600, slide_show.title);
+    const window = win.initWindow(800, 450, slide_show.title);
     defer win.closeWindow(window);
     win.setEventConfig(window);
 
