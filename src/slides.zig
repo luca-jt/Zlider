@@ -323,6 +323,7 @@ pub const SlideShow = struct {
                     }
                     section.section_type = .image;
                     section.data = .{ .text = path };
+                    section.data.text.append('\0'); // for c interop later on
                     section_has_data = true;
                 },
             }
@@ -407,5 +408,11 @@ pub fn handle_input(window: *c.GLFWwindow, slide_show: *SlideShow, renderer: *Re
         }
 
         slide_show.slide_index = current_slide_idx;
+    }
+    // load new file on drag and drop
+    if (true) {
+        // TODO: here the slides and the renderer must be cleaned up first
+        //slide_show.loadSlides(file_path);
+        //renderer.loadSlideData(&slide_show);
     }
 }

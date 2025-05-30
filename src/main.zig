@@ -15,21 +15,21 @@ pub fn main() !void {
     var slide_show = slides.SlideShow.init(std.heap.page_allocator);
     defer slide_show.deinit();
 
+    const window = win.init_window(800, 600, slide_show.title);
+    defer win.close_window(window);
+    win.set_event_config(window);
+
+    var renderer = try rendering.Renderer.init(std.heap.page_allocator);
+    defer renderer.deinit();
+
     if (args.next()) |file_path| {
         slide_show.loadSlides(file_path);
+        renderer.loadSlideData(&slide_show);
 
         if (args.skip()) {
             @panic("You can only supply one additional command line argument with a file or zero.");
         }
     }
-
-    const window = win.init_window(800, 600, slide_show.title);
-    defer win.close_window(window);
-
-    win.set_event_config(window);
-
-    var renderer = rendering.Renderer.init();
-    defer renderer.deinit();
 
     while (c.glfwWindowShouldClose(window) == c.GL_FALSE) {
         handle_input(window, &slide_show, &renderer);

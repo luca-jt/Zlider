@@ -1,6 +1,5 @@
-open the program without file, drop in files to load or use file dialogue
+open the program without file, drag and drop files to load
 slide file hot reloading
-font option
+font option + embed font file
 line spacing
 render the slides
-load the slide show assets in the renderer
