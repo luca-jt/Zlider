@@ -257,7 +257,7 @@ pub const Renderer = struct {
     pub fn render(self: *Self, slide_show: *SlideShow) !void {
         const current_slide = slide_show.currentSlide();
         if (current_slide == null) {
-            clearScreen(data.Color32.new(1, 1, 1, 1));
+            clearScreen(data.Color32.new(255, 255, 255, 255));
             return;
         }
         const slide = current_slide.?;
