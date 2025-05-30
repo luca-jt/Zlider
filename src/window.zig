@@ -1,7 +1,7 @@
 const target_os = @import("builtin").target.os.tag;
 const c = @import("c.zig");
 
-const WindowState = packed struct {
+const WindowState = extern struct {
     win_pos_x: i32 = 0,
     win_pos_y: i32 = 0,
     win_size_x: i32 = 0,

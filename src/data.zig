@@ -1,7 +1,7 @@
 const std = @import("std");
 pub const String = std.ArrayList(u8);
 const c = @import("c.zig");
-const zlm = @import("zlm");
+const zlm = @import("linalg.zig");
 
 pub const Color32 = struct {
     r: u8 = 0,
@@ -17,13 +17,13 @@ pub const Color32 = struct {
         return zlm.vec4(r, g, b, a);
     }
 
-    pub fn fromHex(hex: []const u8) Color32 {
-        const number = std.fmt.parseInt(u32, hex, 16);
+    pub fn fromHex(hex: []const u8) ?Color32 {
+        const number = std.fmt.parseInt(u32, hex, 16) catch return null;
         const r: u8 = @intCast((number & 0xFF000000) >> 24);
         const g: u8 = @intCast((number & 0x00FF0000) >> 16);
         const b: u8 = @intCast((number & 0x0000FF00) >> 8);
         const a: u8 = @intCast((number & 0x000000FF));
-        return .{ r, g, b, a };
+        return .{ .r = r, .g = g, .b = b, .a = a };
     }
 };
 
@@ -57,7 +57,7 @@ pub const Token = union(enum) {
 
 pub const vertex_shader: [*:0]const u8 =
     \\#version 330 core
-    \\layout(location = 0) in vec3 position;
+    \\layout(location = 0) in vec4 position;
     \\layout(location = 1) in vec4 color;
     \\layout(location = 2) in vec2 uv\
     \\layout(location = 3) in float tex_idx;
@@ -67,7 +67,7 @@ pub const vertex_shader: [*:0]const u8 =
     \\layout(location = 0) uniform mat4 projection;
     \\layout(location = 4) uniform mat4 view;
     \\void main() {
-    \\    gl_Position = projection * view * vec4(position, 1.0);
+    \\    gl_Position = projection * view * position;
     \\    v_color = color;
     \\    v_uv = uv;
     \\    v_tex_idx = tex_idx;

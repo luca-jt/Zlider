@@ -1,6 +1,5 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const print = std.debug.print;
 const c = @import("c.zig");
 const slides = @import("slides.zig");
 const win = @import("window.zig");
@@ -33,7 +32,7 @@ pub fn main() !void {
 
     while (c.glfwWindowShouldClose(window) == c.GL_FALSE) {
         try slides.handleInput(window, &slide_show, &renderer);
-        renderer.render(&slide_show);
+        try renderer.render(&slide_show);
         c.glfwSwapBuffers(window);
         c.glfwWaitEvents();
     }
