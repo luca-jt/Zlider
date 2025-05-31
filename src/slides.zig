@@ -4,8 +4,6 @@ const Allocator = std.mem.Allocator;
 pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
 const data = @import("data.zig");
-const rendering = @import("rendering.zig");
-const win = @import("window.zig");
 const c = @import("c.zig");
 
 fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
@@ -373,67 +371,4 @@ fn newSection(slide: *Slide, section: *Section) !void {
     section.text_size = text_size;
     section.text_color = text_color;
     section.alignment = alignment;
-}
-
-pub fn handleInput(window: *c.GLFWwindow, slide_show: *SlideShow, renderer: *rendering.Renderer) !void {
-    // fullscreen toggle
-    if (c.glfwGetKey(window, c.GLFW_KEY_F11) == c.GLFW_PRESS) {
-        const monitor = c.glfwGetPrimaryMonitor();
-        if (c.glfwGetWindowMonitor(window) == null) {
-            win.updateWindowAttributes(window);
-            const mode = c.glfwGetVideoMode(monitor);
-            c.glfwSetWindowMonitor(window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
-        } else {
-            c.glfwSetWindowMonitor(window, null, win.window_state.win_pos_x, win.window_state.win_pos_y, win.window_state.win_size_x, win.window_state.win_size_y, c.GLFW_DONT_CARE);
-        }
-    }
-    // slide_show_switch
-    if (c.glfwGetKey(window, c.GLFW_KEY_RIGHT) == c.GLFW_PRESS or c.glfwGetKey(window, c.GLFW_KEY_DOWN) == c.GLFW_PRESS) {
-        if (slide_show.slide_index < slide_show.slides.items.len - 1) {
-            slide_show.slide_index += 1;
-        }
-    }
-    if (c.glfwGetKey(window, c.GLFW_KEY_LEFT) == c.GLFW_PRESS or c.glfwGetKey(window, c.GLFW_KEY_UP) == c.GLFW_PRESS) {
-        if (slide_show.slide_index > 0) {
-            slide_show.slide_index -= 1;
-        }
-    }
-    // dump the slides to png
-    if (c.glfwGetKey(window, c.GLFW_KEY_I) == c.GLFW_PRESS) {
-        const current_slide_idx = slide_show.slide_index;
-        slide_show.slide_index = 0;
-
-        const slide_mem_size = @as(usize, @intCast(win.window_state.vp_size_x)) * @as(usize, @intCast(win.window_state.vp_size_y)) * 4;
-        const slide_mem = try std.heap.page_allocator.allocSentinel(u8, slide_mem_size, 0);
-        defer std.heap.page_allocator.free(slide_mem);
-
-        const compression_level = 5;
-
-        var slide_file_name = String.init(std.heap.page_allocator);
-        defer slide_file_name.deinit();
-        try slide_file_name.appendSlice(slide_show.title);
-        try slide_file_name.appendSlice("_000");
-        try slide_file_name.append(0);
-
-        const number_slice = slide_file_name.items[slide_file_name.items.len-4..slide_file_name.items.len-1];
-
-        while (slide_show.slide_index < slide_show.slides.items.len) {
-            const slide_number = slide_show.slide_index + 1;
-            _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
-
-            try renderer.render(slide_show);
-            rendering.copyFrameBufferToMemory(slide_mem);
-
-            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), win.window_state.vp_size_x, win.window_state.vp_size_y, compression_level, @ptrCast(slide_mem), 4);
-            slide_show.slide_index += 1;
-        }
-
-        slide_show.slide_index = current_slide_idx;
-    }
-    // load new file on drag and drop
-    if (true) {
-        // TODO: here the slides and the renderer must be cleaned up first
-        //slide_show.loadSlides(file_path);
-        //renderer.loadSlideData(&slide_show);
-    }
 }

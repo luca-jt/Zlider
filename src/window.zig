@@ -1,5 +1,9 @@
 const target_os = @import("builtin").target.os.tag;
 const c = @import("c.zig");
+const slide = @import("slides.zig");
+const rendering = @import("rendering.zig");
+const std = @import("std");
+const String = std.ArrayList(u8);
 
 const WindowState = extern struct {
     win_pos_x: i32 = 0,
@@ -90,4 +94,116 @@ pub fn setEventConfig(window: *c.GLFWwindow) void {
     c.glfwSetInputMode(window, c.GLFW_STICKY_KEYS, c.GLFW_TRUE);
     _ = c.glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     _ = c.glfwSetWindowPosCallback(window, windowPosCallback);
+}
+
+fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
+    const KeyStates = struct {
+        var f11 = false;
+        var left = false;
+        var right = false;
+        var up = false;
+        var down = false;
+        var i = false;
+    };
+
+    const event = c.glfwGetKey(window, key);
+    const pressed = event == c.GLFW_PRESS;
+    const released = event == c.GLFW_RELEASE;
+
+    return switch (key) {
+        c.GLFW_KEY_F11 => blk: {
+            const flip = pressed and !KeyStates.f11 or released and KeyStates.f11;
+            if (flip) KeyStates.f11 = !KeyStates.f11;
+            break :blk flip and pressed;
+        },
+        c.GLFW_KEY_I => blk: {
+            const flip = pressed and !KeyStates.i or released and KeyStates.i;
+            if (flip) KeyStates.i = !KeyStates.i;
+            break :blk flip and pressed;
+        },
+        c.GLFW_KEY_LEFT => blk: {
+            const flip = pressed and !KeyStates.left or released and KeyStates.left;
+            if (flip) KeyStates.left = !KeyStates.left;
+            break :blk flip and pressed;
+        },
+        c.GLFW_KEY_RIGHT => blk: {
+            const flip = pressed and !KeyStates.right or released and KeyStates.right;
+            if (flip) KeyStates.right = !KeyStates.right;
+            break :blk flip and pressed;
+        },
+        c.GLFW_KEY_UP => blk: {
+            const flip = pressed and !KeyStates.up or released and KeyStates.up;
+            if (flip) KeyStates.up = !KeyStates.up;
+            break :blk flip and pressed;
+        },
+        c.GLFW_KEY_DOWN => blk: {
+            const flip = pressed and !KeyStates.down or released and KeyStates.down;
+            if (flip) KeyStates.down = !KeyStates.down;
+            break :blk flip and pressed;
+        },
+        else => false,
+    };
+}
+
+pub fn handleInput(window: *c.GLFWwindow, slide_show: *slide.SlideShow, renderer: *rendering.Renderer) !void {
+    // fullscreen toggle
+    if (keyIsPressed(window, c.GLFW_KEY_F11)) {
+        const monitor = c.glfwGetPrimaryMonitor();
+        if (c.glfwGetWindowMonitor(window) == null) {
+            updateWindowAttributes(window);
+            const mode = c.glfwGetVideoMode(monitor);
+            c.glfwSetWindowMonitor(window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
+        } else {
+            c.glfwSetWindowMonitor(window, null, window_state.win_pos_x, window_state.win_pos_y, window_state.win_size_x, window_state.win_size_y, c.GLFW_DONT_CARE);
+        }
+    }
+    // slide_show_switch
+    if (keyIsPressed(window, c.GLFW_KEY_RIGHT) or keyIsPressed(window, c.GLFW_KEY_DOWN)) {
+        if (slide_show.slide_index < slide_show.slides.items.len - 1) {
+            slide_show.slide_index += 1;
+        }
+    }
+    if (keyIsPressed(window, c.GLFW_KEY_LEFT) or keyIsPressed(window, c.GLFW_KEY_UP)) {
+        if (slide_show.slide_index > 0) {
+            slide_show.slide_index -= 1;
+        }
+    }
+    // dump the slides to png
+    if (keyIsPressed(window, c.GLFW_KEY_I)) {
+        const current_slide_idx = slide_show.slide_index;
+        slide_show.slide_index = 0;
+
+        const slide_mem_size = @as(usize, @intCast(window_state.vp_size_x)) * @as(usize, @intCast(window_state.vp_size_y)) * 4;
+        const slide_mem = try std.heap.page_allocator.allocSentinel(u8, slide_mem_size, 0);
+        defer std.heap.page_allocator.free(slide_mem);
+
+        const compression_level = 5;
+
+        var slide_file_name = String.init(std.heap.page_allocator);
+        defer slide_file_name.deinit();
+        try slide_file_name.appendSlice(slide_show.title);
+        try slide_file_name.appendSlice("_000");
+        try slide_file_name.append(0);
+
+        const number_slice = slide_file_name.items[slide_file_name.items.len-4..slide_file_name.items.len-1];
+
+        while (slide_show.slide_index < slide_show.slides.items.len) {
+            const slide_number = slide_show.slide_index + 1;
+            _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
+
+            try renderer.render(slide_show);
+            rendering.copyFrameBufferToMemory(slide_mem);
+
+            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), window_state.vp_size_x, window_state.vp_size_y, compression_level, @ptrCast(slide_mem), 4);
+            slide_show.slide_index += 1;
+        }
+
+        slide_show.slide_index = current_slide_idx;
+    }
+    // load new file on drag and drop
+    if (true) {
+        // TODO: here the slides and the renderer must be cleaned up first
+        //slide_show.loadSlides(file_path);
+        //renderer.loadSlideData(&slide_show);
+    }
 }
