@@ -133,7 +133,7 @@ const Lexer = struct {
                     .right => .right,
                     .text => blk: {
                         _ = try self.readUntilNewLine();
-                        var text = String.init(std.heap.page_allocator);
+                        var text = String.init(self.allocator);
                         var line = try self.readUntilNewLine();
 
                         while (line.len != 0) {
@@ -157,7 +157,7 @@ const Lexer = struct {
                     },
                     .image => blk: {
                         const path_slice = try self.readNextWord();
-                        var path = String.init(std.heap.page_allocator);
+                        var path = String.init(self.allocator);
                         try path.appendSlice(path_slice);
                         break :blk .{ .image = path };
                     },

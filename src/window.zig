@@ -1,27 +1,16 @@
 const target_os = @import("builtin").target.os.tag;
 const c = @import("c.zig");
 const slide = @import("slides.zig");
-const rendering = @import("rendering.zig");
 const std = @import("std");
 const String = std.ArrayList(u8);
-
-const WindowState = extern struct {
-    win_pos_x: i32 = 0,
-    win_pos_y: i32 = 0,
-    win_size_x: i32 = 0,
-    win_size_y: i32 = 0,
-    vp_pos_x: i32 = 0,
-    vp_pos_y: i32 = 0,
-    vp_size_x: i32 = 0,
-    vp_size_y: i32 = 0,
-};
-pub var window_state: WindowState = .{};
+const Allocator = std.mem.Allocator;
+const state = @import("state.zig");
 
 pub const viewport_ratio: f32 = 16.0 / 9.0;
 
 pub fn updateWindowAttributes(window: *c.GLFWwindow) void {
-    c.glfwGetWindowPos(window, &window_state.win_pos_x, &window_state.win_pos_y);
-    c.glfwGetWindowSize(window, &window_state.win_size_x, &window_state.win_size_y);
+    c.glfwGetWindowPos(window, &state.window_state.win_pos_x, &state.window_state.win_pos_y);
+    c.glfwGetWindowSize(window, &state.window_state.win_size_x, &state.window_state.win_size_y);
 }
 
 fn resizeViewport(width: u32, height: u32) void {
@@ -79,33 +68,25 @@ pub fn closeWindow(window: *c.GLFWwindow) void {
 
 fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
     resizeViewport(@intCast(width), @intCast(height));
-    c.glGetIntegerv(c.GL_VIEWPORT, &window_state.vp_pos_x); // this overwrites both viewport position and size
-    c.glfwGetWindowSize(window, &window_state.win_size_x, &window_state.win_size_y);
+    c.glGetIntegerv(c.GL_VIEWPORT, &state.window_state.vp_pos_x); // this overwrites both viewport position and size
+    c.glfwGetWindowSize(window, &state.window_state.win_size_x, &state.window_state.win_size_y);
 }
 
 fn windowPosCallback(window: ?*c.GLFWwindow, xpos: c_int, ypos: c_int) callconv(.c) void {
     _ = xpos; // to suppress errors
     _ = ypos;
-    c.glfwGetWindowPos(window, &window_state.win_pos_x, &window_state.win_pos_y);
+    c.glfwGetWindowPos(window, &state.window_state.win_pos_x, &state.window_state.win_pos_y);
 }
-
-var last_drop_file = String.init(std.heap.page_allocator);
-var new_file_dropped = false;
 
 fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const u8) callconv(.c) void {
     if (path_count != 1) return;
     _ = window;
-    last_drop_file.clearRetainingCapacity();
-    const path: [*:0]const u8 = paths[0]; // assumed to be null-terminated
-    // copy the file path data on a per-char basis
-    var i: usize = 0;
-    while (true) {
-        const char = path[i];
-        if (char == 0) break;
-        last_drop_file.append(char) catch unreachable;
-        i += 1;
-    }
-    new_file_dropped = true;
+    const path: [:0]const u8 = std.mem.span(paths[0]); // assumed to be null-terminated
+
+    std.log.info("Dropped slides file: {s}", .{path});
+    // TODO: here the slides and the state.renderer must be cleaned up first
+    //state.slide_show.loadSlides(path);
+    //state.renderer.loadSlideData(&state.slide_show);
 }
 
 pub fn setEventConfig(window: *c.GLFWwindow) void {
@@ -165,7 +146,7 @@ fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
     };
 }
 
-pub fn handleInput(window: *c.GLFWwindow, slide_show: *slide.SlideShow, renderer: *rendering.Renderer) !void {
+pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
     // fullscreen toggle
     if (keyIsPressed(window, c.GLFW_KEY_F11)) {
         const monitor = c.glfwGetPrimaryMonitor();
@@ -174,58 +155,57 @@ pub fn handleInput(window: *c.GLFWwindow, slide_show: *slide.SlideShow, renderer
             const mode = c.glfwGetVideoMode(monitor);
             c.glfwSetWindowMonitor(window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
         } else {
-            c.glfwSetWindowMonitor(window, null, window_state.win_pos_x, window_state.win_pos_y, window_state.win_size_x, window_state.win_size_y, c.GLFW_DONT_CARE);
+            c.glfwSetWindowMonitor(window, null, state.window_state.win_pos_x, state.window_state.win_pos_y, state.window_state.win_size_x, state.window_state.win_size_y, c.GLFW_DONT_CARE);
         }
     }
     // slide_show_switch
     if (keyIsPressed(window, c.GLFW_KEY_RIGHT) or keyIsPressed(window, c.GLFW_KEY_DOWN)) {
-        if (slide_show.slide_index < slide_show.slides.items.len - 1) {
-            slide_show.slide_index += 1;
+        if (state.slide_show.slide_index < state.slide_show.slides.items.len - 1) {
+            state.slide_show.slide_index += 1;
         }
     }
     if (keyIsPressed(window, c.GLFW_KEY_LEFT) or keyIsPressed(window, c.GLFW_KEY_UP)) {
-        if (slide_show.slide_index > 0) {
-            slide_show.slide_index -= 1;
+        if (state.slide_show.slide_index > 0) {
+            state.slide_show.slide_index -= 1;
         }
     }
     // dump the slides to png
     if (keyIsPressed(window, c.GLFW_KEY_I)) {
-        const current_slide_idx = slide_show.slide_index;
-        slide_show.slide_index = 0;
+        const current_slide_idx = state.slide_show.slide_index;
+        state.slide_show.slide_index = 0;
 
-        const slide_mem_size = @as(usize, @intCast(window_state.vp_size_x)) * @as(usize, @intCast(window_state.vp_size_y)) * 4;
-        const slide_mem = try std.heap.page_allocator.allocSentinel(u8, slide_mem_size, 0);
-        defer std.heap.page_allocator.free(slide_mem);
+        const slide_mem_size = @as(usize, @intCast(state.window_state.vp_size_x)) * @as(usize, @intCast(state.window_state.vp_size_y)) * 4;
+        const slide_mem = try allocator.allocSentinel(u8, slide_mem_size, 0);
+        defer allocator.free(slide_mem);
 
         const compression_level = 5;
 
-        var slide_file_name = String.init(std.heap.page_allocator);
+        var slide_file_name = String.init(allocator);
         defer slide_file_name.deinit();
-        try slide_file_name.appendSlice(slide_show.title);
+        try slide_file_name.appendSlice(state.slide_show.title);
         try slide_file_name.appendSlice("_000");
         try slide_file_name.append(0);
 
         const number_slice = slide_file_name.items[slide_file_name.items.len-4..slide_file_name.items.len-1];
 
-        while (slide_show.slide_index < slide_show.slides.items.len) {
-            const slide_number = slide_show.slide_index + 1;
+        while (state.slide_show.slide_index < state.slide_show.slides.items.len) {
+            const slide_number = state.slide_show.slide_index + 1;
             _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
 
-            try renderer.render(slide_show);
-            rendering.copyFrameBufferToMemory(slide_mem);
+            try state.renderer.render(&state.slide_show);
+            copyFrameBufferToMemory(slide_mem);
 
-            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), window_state.vp_size_x, window_state.vp_size_y, compression_level, @ptrCast(slide_mem), 4);
-            slide_show.slide_index += 1;
+            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window_state.vp_size_x, state.window_state.vp_size_y, compression_level, @ptrCast(slide_mem), 4);
+            state.slide_show.slide_index += 1;
         }
 
-        slide_show.slide_index = current_slide_idx;
+        state.slide_show.slide_index = current_slide_idx;
     }
-    // load new file on drag and drop
-    if (new_file_dropped) {
-        // TODO: here the slides and the renderer must be cleaned up first
-        //slide_show.loadSlides(file_path);
-        //renderer.loadSlideData(&slide_show);
-        std.log.info("Dropped slides file: {s}", .{last_drop_file.items});
-        new_file_dropped = false;
-    }
+}
+
+fn copyFrameBufferToMemory(memory: [:0]u8) void {
+    c.glReadBuffer(c.GL_FRONT); // TODO: or GL_BACK?
+    // TODO: (0,0) of the window or the viewport?
+    c.glReadPixels(0, 0, state.window_state.vp_size_x, state.window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
+    // TODO: flip the image vertically?
 }

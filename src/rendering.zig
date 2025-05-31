@@ -5,6 +5,7 @@ const HashMap = std.StringHashMap;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const win = @import("window.zig");
+const state = @import("state.zig");
 const SlideShow = @import("slides.zig").SlideShow;
 const zlm = @import("linalg.zig");
 
@@ -25,7 +26,8 @@ fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetShaderiv(shader, c.GL_INFO_LOG_LENGTH, &len);
-        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
+        var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
+        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
         defer std.heap.page_allcator.free(buf);
         c.glGetShaderInfoLog(shader, len, null, buf);
         @panic(buf);
@@ -50,7 +52,8 @@ fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetProgramiv(program, c.GL_INFO_LOG_LENGTH, &len);
-        const buf = std.heap.page_allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
+        var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
+        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
         defer std.heap.page_allcator.free(buf);
         c.glGetProgramInfoLog(program, len, null, buf);
         @panic(buf);
@@ -107,13 +110,6 @@ fn generateWhiteTexture() c.GLuint {
         &white_color_data
     );
     return white_texture;
-}
-
-pub fn copyFrameBufferToMemory(memory: [:0]u8) void {
-    c.glReadBuffer(c.GL_FRONT); // TODO: or GL_BACK?
-    // TODO: (0,0) of the window or the viewport?
-    c.glReadPixels(0, 0, win.window_state.vp_size_x, win.window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
-    // TODO: flip the image vertically?
 }
 
 const Vertex = extern struct {
@@ -267,7 +263,7 @@ pub const Renderer = struct {
         const line_spacing: usize = 2; // TODO: will be set in the slide files in the future
 
         for (slide.sections.items) |*section| {
-            const scale_factor = @as(f32, @floatFromInt(section.text_size)) / @as(f32, @floatFromInt(win.window_state.vp_size_y));
+            const scale_factor = @as(f32, @floatFromInt(section.text_size)) / @as(f32, @floatFromInt(state.window_state.vp_size_y));
             const image_scale = zlm.Mat4.scaleFromFactor(scale_factor);
 
             switch (section.section_type) {
