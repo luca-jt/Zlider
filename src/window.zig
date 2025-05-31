@@ -89,11 +89,31 @@ fn windowPosCallback(window: ?*c.GLFWwindow, xpos: c_int, ypos: c_int) callconv(
     c.glfwGetWindowPos(window, &window_state.win_pos_x, &window_state.win_pos_y);
 }
 
+var last_drop_file = String.init(std.heap.page_allocator);
+var new_file_dropped = false;
+
+fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const u8) callconv(.c) void {
+    if (path_count != 1) return;
+    _ = window;
+    last_drop_file.clearRetainingCapacity();
+    const path: [*:0]const u8 = paths[0]; // assumed to be null-terminated
+    // copy the file path data on a per-char basis
+    var i: usize = 0;
+    while (true) {
+        const char = path[i];
+        if (char == 0) break;
+        last_drop_file.append(char) catch unreachable;
+        i += 1;
+    }
+    new_file_dropped = true;
+}
+
 pub fn setEventConfig(window: *c.GLFWwindow) void {
     c.glfwSetInputMode(window, c.GLFW_LOCK_KEY_MODS, c.GLFW_TRUE);
     c.glfwSetInputMode(window, c.GLFW_STICKY_KEYS, c.GLFW_TRUE);
     _ = c.glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     _ = c.glfwSetWindowPosCallback(window, windowPosCallback);
+    _ = c.glfwSetDropCallback(window, dropCallback);
 }
 
 fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
@@ -201,9 +221,11 @@ pub fn handleInput(window: *c.GLFWwindow, slide_show: *slide.SlideShow, renderer
         slide_show.slide_index = current_slide_idx;
     }
     // load new file on drag and drop
-    if (true) {
+    if (new_file_dropped) {
         // TODO: here the slides and the renderer must be cleaned up first
         //slide_show.loadSlides(file_path);
         //renderer.loadSlideData(&slide_show);
+        std.log.info("Dropped slides file: {s}", .{last_drop_file.items});
+        new_file_dropped = false;
     }
 }
