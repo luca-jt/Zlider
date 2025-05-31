@@ -1,6 +1,6 @@
 const std = @import("std");
 
-// This is heavily inspired by https://github.com/ziglibs/zlm. I made slight modifications and added compatibility fixes for Zig version 0.14.1 (e.g. matrices are column major).
+// This is heavily inspired by https://github.com/ziglibs/zlm. I made slight modifications, corrected mistakes and added compatibility fixes for Zig version 0.14.1. In this version all matrices are column major.
 
 pub usingnamespace LinAlgTypes(f32);
 
@@ -172,8 +172,8 @@ pub fn LinAlgTypes(comptime T: type) type {
             pub fn transform(v: Self, mat: Mat2) Self {
                 var result = zero;
                 inline for (0..2) |i| {
-                    result.x += v.getField(i) * mat.fields[0][i];
-                    result.y += v.getField(i) * mat.fields[1][i];
+                    result.x += v.getField(i) * mat.fields[i][0];
+                    result.y += v.getField(i) * mat.fields[i][1];
                 }
                 return result;
             }
@@ -220,9 +220,9 @@ pub fn LinAlgTypes(comptime T: type) type {
             pub fn transform(v: Self, mat: Mat3) Self {
                 var result = zero;
                 inline for (0..3) |i| {
-                    result.x += v.getField(i) * mat.fields[0][i];
-                    result.y += v.getField(i) * mat.fields[1][i];
-                    result.z += v.getField(i) * mat.fields[2][i];
+                    result.x += v.getField(i) * mat.fields[i][0];
+                    result.y += v.getField(i) * mat.fields[i][1];
+                    result.z += v.getField(i) * mat.fields[i][2];
                 }
                 return result;
             }
@@ -289,7 +289,7 @@ pub fn LinAlgTypes(comptime T: type) type {
         };
 
         pub const Mat2 = extern struct {
-            fields: [2][2]T, // [row][col]
+            fields: [2][2]T, // [col][row]
 
             const Self = @This();
 
@@ -311,11 +311,11 @@ pub fn LinAlgTypes(comptime T: type) type {
                 var result: Self = undefined;
                 inline for (0..2) |row| {
                     inline for (0..2) |col| {
-                        var sum: T = 0.0;
+                        var sum: T = 0;
                         inline for (0..2) |i| {
-                            sum += a.fields[row][i] * b.fields[i][col];
+                            sum += a.fields[i][row] * b.fields[col][i];
                         }
-                        result.fields[row][col] = sum;
+                        result.fields[col][row] = sum;
                     }
                 }
                 return result;
@@ -323,9 +323,9 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub fn transpose(a: Self) Self {
                 var result: Self = undefined;
-                inline for (0..2) |row| {
-                    inline for (0..2) |col| {
-                        result.fields[row][col] = a.fields[col][row];
+                inline for (0..2) |col| {
+                    inline for (0..2) |row| {
+                        result.fields[col][row] = a.fields[row][col];
                     }
                 }
                 return result;
@@ -333,7 +333,7 @@ pub fn LinAlgTypes(comptime T: type) type {
         };
 
         pub const Mat3 = extern struct {
-            fields: [3][3]T, // [row][col]
+            fields: [3][3]T, // [col][row]
 
             const Self = @This();
 
@@ -357,11 +357,11 @@ pub fn LinAlgTypes(comptime T: type) type {
                 var result: Self = undefined;
                 inline for (0..3) |row| {
                     inline for (0..3) |col| {
-                        var sum: T = 0.0;
+                        var sum: T = 0;
                         inline for (0..3) |i| {
-                            sum += a.fields[row][i] * b.fields[i][col];
+                            sum += a.fields[i][row] * b.fields[col][i];
                         }
-                        result.fields[row][col] = sum;
+                        result.fields[col][row] = sum;
                     }
                 }
                 return result;
@@ -369,9 +369,9 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub fn transpose(a: Self) Self {
                 var result: Self = undefined;
-                inline for (0..3) |row| {
-                    inline for (0..3) |col| {
-                        result.fields[row][col] = a.fields[col][row];
+                inline for (0..3) |col| {
+                    inline for (0..3) |row| {
+                        result.fields[col][row] = a.fields[row][col];
                     }
                 }
                 return result;
@@ -405,11 +405,11 @@ pub fn LinAlgTypes(comptime T: type) type {
                 var result: Self = undefined;
                 inline for (0..4) |row| {
                     inline for (0..4) |col| {
-                        var sum: T = 0.0;
+                        var sum: T = 0;
                         inline for (0..4) |i| {
-                            sum += a.fields[row][i] * b.fields[i][col];
+                            sum += a.fields[i][row] * b.fields[col][i];
                         }
-                        result.fields[row][col] = sum;
+                        result.fields[col][row] = sum;
                     }
                 }
                 return result;
@@ -417,9 +417,9 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub fn transpose(a: Self) Self {
                 var result: Self = undefined;
-                inline for (0..4) |row| {
-                    inline for (0..4) |col| {
-                        result.fields[row][col] = a.fields[col][row];
+                inline for (0..4) |col| {
+                    inline for (0..4) |row| {
+                        result.fields[col][row] = a.fields[row][col];
                     }
                 }
                 return result;
@@ -427,6 +427,16 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub fn scaleFromFactor(factor: T) Self {
                 return scale(factor, factor, factor);
+            }
+
+            pub fn toMat3(self: Self) Mat3 {
+                return Mat3{
+                    .fields = [3][3]T{
+                        self.fields[0][0..3],
+                        self.fields[1][0..3],
+                        self.fields[2][0..3],
+                    },
+                };
             }
 
 
@@ -441,17 +451,17 @@ pub fn LinAlgTypes(comptime T: type) type {
 
                 var result = Self.identity;
                 result.fields[0][0] = s.x;
-                result.fields[1][0] = s.y;
-                result.fields[2][0] = s.z;
-                result.fields[0][1] = u.x;
+                result.fields[0][1] = s.y;
+                result.fields[0][2] = s.z;
+                result.fields[1][0] = u.x;
                 result.fields[1][1] = u.y;
-                result.fields[2][1] = u.z;
-                result.fields[0][2] = - f.x;
-                result.fields[1][2] = - f.y;
+                result.fields[1][2] = u.z;
+                result.fields[2][0] = - f.x;
+                result.fields[2][1] = - f.y;
                 result.fields[2][2] = - f.z;
-                result.fields[3][0] = - Vec3.dot(s, eye);
-                result.fields[3][1] = - Vec3.dot(u, eye);
-                result.fields[3][2] = Vec3.dot(f, eye);
+                result.fields[0][3] = - Vec3.dot(s, eye);
+                result.fields[1][3] = - Vec3.dot(u, eye);
+                result.fields[2][3] = Vec3.dot(f, eye);
                 return result;
             }
 
@@ -462,8 +472,8 @@ pub fn LinAlgTypes(comptime T: type) type {
                 result.fields[0][0] = 1.0 / (aspect * tanHalfFovy);
                 result.fields[1][1] = 1.0 / (tanHalfFovy);
                 result.fields[2][2] = - (far + near) / (far - near);
-                result.fields[2][3] = - 1;
-                result.fields[3][2] = - (2 * far * near) / (far - near);
+                result.fields[2][3] = - (2 * far * near) / (far - near);
+                result.fields[3][2] = - 1;
                 return result;
             }
 
@@ -476,7 +486,7 @@ pub fn LinAlgTypes(comptime T: type) type {
                 const y = normalized.y;
                 const z = normalized.z;
 
-                return Self{
+                const rotate = Self{
                     .fields = [4][4]T{
                         [4]T{ cos + x * x * (1 - cos),       x * y * (1 - cos) + z * sin,    x * z * (1 - cos) - y * sin, 0 },
                         [4]T{ y * x * (1 - cos) - z * sin,   cos + y * y * (1 - cos),        y * z * (1 - cos) + x * sin, 0 },
@@ -484,6 +494,7 @@ pub fn LinAlgTypes(comptime T: type) type {
                         [4]T{ 0,                             0,                              0,                           1 },
                     },
                 };
+                return rotate.transpose(); // too lazy to rewrite for column major for now
             }
 
             pub fn scale(x: T, y: T, z: T) Self {
@@ -500,10 +511,10 @@ pub fn LinAlgTypes(comptime T: type) type {
             pub fn translation(v: Vec3) Self {
                 return Self{
                     .fields = [4][4]T{
-                        [4]T{ 1, 0, 0, 0 },
-                        [4]T{ 0, 1, 0, 0 },
-                        [4]T{ 0, 0, 1, 0 },
-                        [4]T{ v.x, v.y, v.z, 1 },
+                        [4]T{ 1, 0, 0, v.x },
+                        [4]T{ 0, 1, 0, v.y },
+                        [4]T{ 0, 0, 1, v.z },
+                        [4]T{ 0, 0, 0, 1 },
                     },
                 };
             }
@@ -513,9 +524,9 @@ pub fn LinAlgTypes(comptime T: type) type {
                 result.fields[0][0] = 2 / (right - left);
                 result.fields[1][1] = 2 / (top - bottom);
                 result.fields[2][2] = - 2 / (far - near);
-                result.fields[3][0] = - (right + left) / (right - left);
-                result.fields[3][1] = - (top + bottom) / (top - bottom);
-                result.fields[3][2] = - (far + near) / (far - near);
+                result.fields[0][3] = - (right + left) / (right - left);
+                result.fields[1][3] = - (top + bottom) / (top - bottom);
+                result.fields[2][3] = - (far + near) / (far - near);
                 return result;
             }
         };

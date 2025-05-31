@@ -314,8 +314,8 @@ pub const Renderer = struct {
         );
 
         // bind uniforms
-        c.glUniformMatrix4fv(0, 1, c.GL_FALSE, &self.projection.transpose().fields[0][0]);
-        c.glUniformMatrix4fv(4, 1, c.GL_FALSE, &self.view.transpose().fields[0][0]);
+        c.glUniformMatrix4fv(0, 1, c.GL_FALSE, &self.projection.fields[0][0]);
+        c.glUniformMatrix4fv(4, 1, c.GL_FALSE, &self.view.fields[0][0]);
         for (0..max_texture_count) |i| {
             c.glUniform1i(@intCast(8 + i), @intCast(i));
         }
