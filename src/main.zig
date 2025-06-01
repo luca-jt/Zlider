@@ -7,18 +7,19 @@ const state = @import("state.zig");
 
 pub fn main() !void {
     var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-    var args = try std.process.argsWithAllocator(alloc.allocator());
+    const allocator = alloc.allocator();
+    var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
     std.debug.assert(args.skip()); // skip the program name
 
-    state.slide_show = slides.SlideShow.init(alloc.allocator());
+    state.slide_show = slides.SlideShow.init(allocator);
     defer state.slide_show.deinit();
 
     const window = win.initWindow(800, 450, state.slide_show.title);
     defer win.closeWindow(window);
     win.setEventConfig(window);
 
-    state.renderer = try rendering.Renderer.init(alloc.allocator());
+    state.renderer = try rendering.Renderer.init(allocator);
     defer state.renderer.deinit();
 
     if (args.next()) |file_path| {
@@ -31,7 +32,7 @@ pub fn main() !void {
     }
 
     while (c.glfwWindowShouldClose(window) == c.GL_FALSE) {
-        try win.handleInput(window, alloc.allocator());
+        try win.handleInput(window, allocator);
         try state.renderer.render(&state.slide_show);
         c.glfwSwapBuffers(window);
         c.glfwWaitEvents();
