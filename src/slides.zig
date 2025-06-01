@@ -258,7 +258,7 @@ pub const SlideShow = struct {
                 SlidesParseError.LexerInvalidToken => print("Lexer Error: invalid token", .{}),
                 SlidesParseError.ParserEmptySlide => print("Parser Error: missing keyword", .{}),
                 SlidesParseError.TooManySlides => print("Parser Error: missing keyword", .{}),
-                else => print("OS Error", .{}),
+                else => |err| print("Unexpected error: {s}", .{@errorName(err)}),
             }
             print("\nUnable to parse slide show file: {s}\n", .{file_path});
         };
