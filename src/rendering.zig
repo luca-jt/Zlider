@@ -27,7 +27,7 @@ fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
         var len: c.GLint = 0;
         c.glGetShaderiv(shader, c.GL_INFO_LOG_LENGTH, &len);
         var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
+        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("error allocating buffer");
         defer std.heap.page_allcator.free(buf);
         c.glGetShaderInfoLog(shader, len, null, buf);
         @panic(buf);
@@ -53,7 +53,7 @@ fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
         var len: c.GLint = 0;
         c.glGetProgramiv(program, c.GL_INFO_LOG_LENGTH, &len);
         var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch unreachable;
+        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("error allocating buffer");
         defer std.heap.page_allcator.free(buf);
         c.glGetProgramInfoLog(program, len, null, buf);
         @panic(buf);
@@ -245,7 +245,7 @@ pub const Renderer = struct {
 
                 const tex_id = generateTexture(image_data, width, height);
                 c.stbi_image_free(image_data);
-                self.textures.put(section.data.text.items, tex_id) catch unreachable;
+                self.textures.put(section.data.text.items, tex_id) catch @panic("error inserting texture");
             }
         }
     }

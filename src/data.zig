@@ -119,3 +119,5 @@ pub const plane_uvs = [4]zlm.Vec2{
 };
 
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
+
+pub const default_font = @embedFile("../fonts/DMSerifText-Regular.ttf");
