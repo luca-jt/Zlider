@@ -1,5 +1,6 @@
 slide file hot reloading
-font option + embed font file
-line spacing
+font option
+line spacing, line breaking
 render the slides with respecting the return values of the render funcions
 open the program without file, drag and drop files to load
+maybe only use one font size (the max) and scale that one -> then the size for the bitmap can be calculated using the max dimensions of the font -> only one FontData in the renderer

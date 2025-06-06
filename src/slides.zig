@@ -44,7 +44,7 @@ const Lexer = struct {
         self.buffer.deinit();
     }
 
-    inline fn head(self: *Self) u8 {
+    fn head(self: *Self) u8 {
         return self.input[self.ptr];
     }
 

@@ -1,7 +1,8 @@
 const c = @import("c.zig");
 const data = @import("data.zig");
 const std = @import("std");
-const HashMap = std.StringHashMap;
+const StringHashMap = std.StringHashMap;
+const HashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const win = @import("window.zig");
@@ -119,6 +120,68 @@ const Vertex = extern struct {
     tex_idx: c.GLfloat,
 };
 
+const FontStorage = extern struct {
+    texture: c.GLuint = undefined,
+    baked_chars: [data.glyph_count]c.stbtt_bakedchar = undefined,
+
+    const Self = @This();
+
+    fn init(allocator: Allocator, font_size: usize) Self {
+        var self: Self = .{};
+
+        const size: usize = 512; // TODO: calc better
+        const buffer = allocator.alloc(u8, size * size) catch @panic("allocation error");
+        defer allocator.free(buffer);
+        _ = c.stbtt_BakeFontBitmap(data.default_font, 0, @floatFromInt(font_size), @ptrCast(buffer), @intCast(size), @intCast(size), data.first_char, data.glyph_count, &self.baked_chars);
+
+        c.glGenTextures(1, &self.texture);
+        c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, size, size, 0, c.GL_RED, c.GL_UNSIGNED_BYTE, @ptrCast(buffer));
+        c.glGenerateMipmap(c.GL_TEXTURE_2D);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST_MIPMAP_LINEAR);
+
+        return self;
+    }
+
+    fn deinit(self: Self) void {
+        c.glDeleteTextures(1, &self.texture);
+    }
+};
+
+const FontData = struct {
+    font_info: c.stbtt_fontinfo = undefined,
+    font_data: HashMap(usize, FontStorage), // maps font sizes to data
+    allocator: Allocator,
+
+    const Self = @This();
+
+    fn init(allocator: Allocator) Self {
+        var fd = Self{
+            .font_data = HashMap(usize, FontStorage).init(allocator),
+            .allocator = allocator,
+        };
+
+        std.debug.assert(c.stbtt_InitFont(&fd.font_info, data.default_font, 0) != 0);
+
+        return fd;
+    }
+
+    fn deinit(self: *Self) void {
+        var font_texture_iter = self.font_data.valueIterator();
+        while (font_texture_iter.next()) |storage| {
+            storage.deinit();
+        }
+        self.font_data.deinit();
+    }
+
+    fn addFontSize(self: *Self, font_size: usize) void {
+        const actual_size: usize = @min(@max(data.min_font_size, font_size), data.max_font_size);
+        if (self.font_data.contains(actual_size)) return;
+        self.font_data.put(actual_size, FontStorage.init(self.allocator, actual_size)) catch @panic("allocation error");
+    }
+};
+
 pub const Renderer = struct {
     shader: c.GLuint,
     white_texture: c.GLuint,
@@ -131,7 +194,8 @@ pub const Renderer = struct {
     max_num_meshes: usize = 10,
     projection: zlm.Mat4 = zlm.Mat4.ortho(-win.viewport_ratio, win.viewport_ratio, -1.0, 1.0, 0.1, 2.0),
     view: zlm.Mat4 = zlm.Mat4.lookAt(zlm.Vec3.unitZ, zlm.Vec3.zero, zlm.Vec3.unitY),
-    textures: HashMap(c.GLuint),
+    textures: StringHashMap(c.GLuint),
+    font_data: FontData,
 
     const Self = @This();
 
@@ -141,7 +205,8 @@ pub const Renderer = struct {
             .white_texture = generateWhiteTexture(),
             .obj_buffer = ArrayList(Vertex).init(allocator),
             .all_tex_ids = ArrayList(c.GLuint).init(allocator),
-            .textures = HashMap(c.GLuint).init(allocator),
+            .textures = StringHashMap(c.GLuint).init(allocator),
+            .font_data = FontData.init(allocator),
         };
 
         c.glGenVertexArrays(1, &r.vao);
@@ -227,11 +292,16 @@ pub const Renderer = struct {
             c.glDeleteTextures(1, tex_id);
         }
         self.textures.deinit();
+        self.font_data.deinit();
     }
 
     pub fn loadSlideData(self: *Self, slide_show: *SlideShow) void {
         for (slide_show.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
+                if (section.section_type == .text) {
+                    self.font_data.addFontSize(section.text_size);
+                    continue;
+                }
                 if (section.section_type != .image) continue;
                 if (self.textures.contains(section.data.text.items)) continue;
 
@@ -259,17 +329,19 @@ pub const Renderer = struct {
         const slide = current_slide.?;
         clearScreen(slide.background_color);
 
-        var current_cursor = slide.sections.items[0].text_size; // y position in pixels
         const line_spacing: usize = 2; // TODO: will be set in the slide files in the future
+        var cursor_y = slide.sections.items[0].text_size; // y position in pixels
+        var cursor_x = slide.sections.items[0].text_size; // x position in pixels
+        _ = &cursor_x; // TODO: remove
 
         for (slide.sections.items) |*section| {
-            const scale_factor = @as(f32, @floatFromInt(section.text_size)) / @as(f32, @floatFromInt(state.window_state.vp_size_y));
+            const scale_factor = @as(f32, @floatFromInt(section.text_size)) / @as(f32, @floatFromInt(state.window_state.vp_size_y)); // TODO: calc that with the font data
             const image_scale = zlm.Mat4.scaleFromFactor(scale_factor);
 
             switch (section.section_type) {
                 .space => {
-                    current_cursor += section.text_size;
-                    current_cursor += line_spacing;
+                    cursor_y += section.text_size;
+                    cursor_y += line_spacing;
                 },
                 .text => {
                     const position = zlm.Vec3.zero; // TODO
@@ -277,18 +349,18 @@ pub const Renderer = struct {
                     const tex_id: c.GLuint = 0; // TODO
                     for (section.data.text.items) |char| {
                         if (char == '\n') {
-                            current_cursor += line_spacing; // TODO: other special chars and an x axis cursor
+                            cursor_y += line_spacing; // TODO: other special chars and an x axis cursor
                         }
                         _ = try self.addTexQuad(trafo, tex_id); // TODO: return value
                     }
-                    current_cursor += line_spacing;
+                    cursor_y += line_spacing;
                 },
                 .image => {
                     const position = zlm.Vec3.zero; // TODO
                     const trafo = zlm.Mat4.translation(position).mul(image_scale);
                     const tex_id = self.textures.get(section.data.text.items).?;
                     _ = try self.addTexQuad(trafo, tex_id); // TODO: return value
-                    current_cursor += line_spacing;
+                    cursor_y += line_spacing;
                 },
             }
         }

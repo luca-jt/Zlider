@@ -120,4 +120,8 @@ pub const plane_uvs = [4]zlm.Vec2{
 
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
 
-pub const default_font = @embedFile("../fonts/DMSerifText-Regular.ttf");
+pub const default_font: [:0]const u8 = @embedFile("fonts/DMSerifText-Regular.ttf");
+pub const first_char: c_int = 32;
+pub const glyph_count: c_int = 126 - first_char;
+pub const max_font_size: usize = 70;
+pub const min_font_size: usize = 8;
