@@ -149,6 +149,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             const Self = @This();
 
             pub const zero = Self.new(0, 0);
+            pub const one = Self.new(1, 1);
             pub const unitX = Self.new(1, 0);
             pub const unitY = Self.new(0, 1);
 
@@ -187,6 +188,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             const Self = @This();
 
             pub const zero = Self.new(0, 0, 0);
+            pub const one = Self.new(1, 1, 1);
             pub const unitX = Self.new(1, 0, 0);
             pub const unitY = Self.new(0, 1, 0);
             pub const unitZ = Self.new(0, 0, 1);
@@ -250,6 +252,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             const Self = @This();
 
             pub const zero = Self.new(0, 0, 0, 0);
+            pub const one = Self.new(1, 1, 1, 1);
             pub const unitX = Self.new(1, 0, 0, 0);
             pub const unitY = Self.new(0, 1, 0, 0);
             pub const unitZ = Self.new(0, 0, 1, 0);
@@ -426,7 +429,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             }
 
             pub fn scaleFromFactor(factor: T) Self {
-                return scale(factor, factor, factor);
+                return scale(.{ .x = factor, .y = factor, .z = factor});
             }
 
             pub fn toMat3(self: Self) Mat3 {
@@ -497,12 +500,12 @@ pub fn LinAlgTypes(comptime T: type) type {
                 return rotate.transpose(); // too lazy to rewrite for column major for now
             }
 
-            pub fn scale(x: T, y: T, z: T) Self {
+            pub fn scale(v: Vec3) Self {
                 return Self{
                     .fields = [4][4]T{
-                        [4]T{ x, 0, 0, 0 },
-                        [4]T{ 0, y, 0, 0 },
-                        [4]T{ 0, 0, z, 0 },
+                        [4]T{ v.x, 0, 0, 0 },
+                        [4]T{ 0, v.y, 0, 0 },
+                        [4]T{ 0, 0, v.z, 0 },
                         [4]T{ 0, 0, 0, 1 },
                     },
                 };

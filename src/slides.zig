@@ -45,7 +45,9 @@ const Lexer = struct {
     }
 
     fn head(self: *Self) u8 {
-        return self.input[self.ptr];
+        const char = self.input[self.ptr];
+        if (char == '\t') return ' ';
+        return char;
     }
 
     fn containedKeyword(self: *Self) ?data.Keyword {

@@ -70,17 +70,22 @@ pub const Token = union(enum) {
 
 pub const vertex_shader: [*:0]const u8 =
     \\#version 450 core
-    \\layout(location = 0) in vec4 position;
+    \\
+    \\layout(location = 0) in vec3 position;
     \\layout(location = 1) in vec4 color;
     \\layout(location = 2) in vec2 uv;
     \\layout(location = 3) in float tex_idx;
+    \\
     \\out vec4 v_color;
     \\out vec2 v_uv;
+    \\
     \\flat out float v_tex_idx;
+    \\
     \\layout(location = 0) uniform mat4 projection;
     \\layout(location = 4) uniform mat4 view;
+    \\
     \\void main() {
-    \\    gl_Position = projection * view * position;
+    \\    gl_Position = projection * view * vec4(position, 1.0);
     \\    v_color = color;
     \\    v_uv = uv;
     \\    v_tex_idx = tex_idx;
@@ -89,11 +94,15 @@ pub const vertex_shader: [*:0]const u8 =
 
 pub const fragment_shader: [*:0]const u8 =
     \\#version 450 core
+    \\
     \\in vec4 v_color;
     \\in vec2 v_uv;
     \\flat in float v_tex_idx;
+    \\
     \\out vec4 out_color;
+    \\
     \\layout(location = 8) uniform sampler2D tex_sampler[32];
+    \\
     \\void main() {
     \\    int sampler_idx = int(round(v_tex_idx));
     \\    vec4 textured = texture(tex_sampler[sampler_idx], v_uv).rgba;
@@ -123,5 +132,6 @@ pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
 pub const default_font: [:0]const u8 = @embedFile("fonts/DMSerifText-Regular.ttf");
 pub const first_char: c_int = 32;
 pub const glyph_count: c_int = 126 - first_char;
-pub const max_font_size: usize = 70;
-pub const min_font_size: usize = 8;
+
+// this determines the scaling of the text in rendering, the font size relative to the window size should not change
+pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080 };

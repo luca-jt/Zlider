@@ -2,11 +2,9 @@ const c = @import("c.zig");
 const data = @import("data.zig");
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
-const HashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const win = @import("window.zig");
-const state = @import("state.zig");
 const SlideShow = @import("slides.zig").SlideShow;
 const zlm = @import("linalg.zig");
 
@@ -114,7 +112,7 @@ fn generateWhiteTexture() c.GLuint {
 }
 
 const Vertex = extern struct {
-    position: zlm.Vec4,
+    position: zlm.Vec3,
     color: zlm.Vec4,
     uv: zlm.Vec2,
     tex_idx: c.GLfloat,
@@ -126,17 +124,17 @@ const FontStorage = extern struct {
 
     const Self = @This();
 
-    fn init(allocator: Allocator, font_size: usize) Self {
+    fn init(allocator: Allocator, font_size: usize, buffer_side_size: usize) Self {
         var self: Self = .{};
 
-        const size: usize = 512; // TODO: calc better
+        const size = buffer_side_size;
         const buffer = allocator.alloc(u8, size * size) catch @panic("allocation error");
         defer allocator.free(buffer);
         _ = c.stbtt_BakeFontBitmap(data.default_font, 0, @floatFromInt(font_size), @ptrCast(buffer), @intCast(size), @intCast(size), data.first_char, data.glyph_count, &self.baked_chars);
 
         c.glGenTextures(1, &self.texture);
         c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
-        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, size, size, 0, c.GL_RED, c.GL_UNSIGNED_BYTE, @ptrCast(buffer));
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, @intCast(size), @intCast(size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, @ptrCast(buffer));
         c.glGenerateMipmap(c.GL_TEXTURE_2D);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST_MIPMAP_LINEAR);
@@ -149,36 +147,55 @@ const FontStorage = extern struct {
     }
 };
 
+const builtin_font_size_count: usize = 7;
+const baked_font_sizes = [builtin_font_size_count]usize{ 12, 16, 24, 32, 48, 64, 96 }; // indices correspond to indices in a texture array
+
+/// converts a font size to an index in the font texture array, when in doubt the bigger size is chosen
+fn fontSizeIndex(font_size: usize) usize {
+    for (baked_font_sizes, 0..) |size, i|  {
+        const dist: i64 = @as(i64, @intCast(font_size)) - @as(i64, @intCast(size));
+        if (dist <= 0) return i;
+    }
+    return builtin_font_size_count - 1;
+}
+
 const FontData = struct {
     font_info: c.stbtt_fontinfo = undefined,
-    font_data: HashMap(usize, FontStorage), // maps font sizes to data
+    ascent: c_int = undefined,
+    descent: c_int = undefined,
+    line_gap: c_int = undefined,
+    font_texture_side_pixel_size: usize = undefined,
+    baked_fonts: [builtin_font_size_count]FontStorage = undefined,
     allocator: Allocator,
 
     const Self = @This();
 
     fn init(allocator: Allocator) Self {
-        var fd = Self{
-            .font_data = HashMap(usize, FontStorage).init(allocator),
-            .allocator = allocator,
-        };
+        var self = Self{ .allocator = allocator };
 
-        std.debug.assert(c.stbtt_InitFont(&fd.font_info, data.default_font, 0) != 0);
+        std.debug.assert(c.stbtt_InitFont(&self.font_info, data.default_font, 0) != 0);
+        c.stbtt_GetFontVMetrics(&self.font_info, &self.ascent, &self.descent, &self.line_gap);
+        var x0: c_int = undefined;
+        var y0: c_int = undefined;
+        var x1: c_int = undefined;
+        var y1: c_int = undefined;
+        c.stbtt_GetFontBoundingBox(&self.font_info, &x0, &y0 , &x1, &y1);
+        const x_diff: usize = @intCast(@abs(x1 - x0));
+        const y_diff: usize = @intCast(@abs(y1 - y0));
+        const max_pixel_size: f32 = @floatFromInt(baked_font_sizes[baked_font_sizes.len - 1]);
+        self.font_texture_side_pixel_size = @as(usize, @intFromFloat(@as(f32, @floatFromInt(@max(x_diff, y_diff))) * c.stbtt_ScaleForPixelHeight(&self.font_info, max_pixel_size) * @sqrt(@as(f32, @floatFromInt(data.glyph_count)))));
 
-        return fd;
+        for (0..builtin_font_size_count) |i| {
+            self.baked_fonts[i] = FontStorage.init(self.allocator, baked_font_sizes[i], self.font_texture_side_pixel_size);
+        }
+
+        return self;
     }
 
     fn deinit(self: *Self) void {
-        var font_texture_iter = self.font_data.valueIterator();
-        while (font_texture_iter.next()) |storage| {
+        for (&self.baked_fonts) |*storage| {
             storage.deinit();
         }
-        self.font_data.deinit();
-    }
-
-    fn addFontSize(self: *Self, font_size: usize) void {
-        const actual_size: usize = @min(@max(data.min_font_size, font_size), data.max_font_size);
-        if (self.font_data.contains(actual_size)) return;
-        self.font_data.put(actual_size, FontStorage.init(self.allocator, actual_size)) catch @panic("allocation error");
     }
 };
 
@@ -191,7 +208,7 @@ pub const Renderer = struct {
     index_count: c.GLsizei = 0,
     obj_buffer: ArrayList(Vertex),
     all_tex_ids: ArrayList(c.GLuint),
-    max_num_meshes: usize = 10,
+    max_num_meshes: usize = 100,
     projection: zlm.Mat4 = zlm.Mat4.ortho(-win.viewport_ratio, win.viewport_ratio, -1.0, 1.0, 0.1, 2.0),
     view: zlm.Mat4 = zlm.Mat4.lookAt(zlm.Vec3.unitZ, zlm.Vec3.zero, zlm.Vec3.unitY),
     textures: StringHashMap(c.GLuint),
@@ -200,7 +217,7 @@ pub const Renderer = struct {
     const Self = @This();
 
     pub fn init(allocator: Allocator) !Self {
-        var r = Self{
+        var self = Self{
             .shader = createShader(data.vertex_shader, data.fragment_shader),
             .white_texture = generateWhiteTexture(),
             .obj_buffer = ArrayList(Vertex).init(allocator),
@@ -209,54 +226,26 @@ pub const Renderer = struct {
             .font_data = FontData.init(allocator),
         };
 
-        c.glGenVertexArrays(1, &r.vao);
-        c.glBindVertexArray(r.vao);
-        c.glGenBuffers(1, &r.vbo);
-        c.glBindBuffer(c.GL_ARRAY_BUFFER, r.vbo);
+        c.glGenVertexArrays(1, &self.vao);
+        c.glBindVertexArray(self.vao);
+        c.glGenBuffers(1, &self.vbo);
+        c.glBindBuffer(c.GL_ARRAY_BUFFER, self.vbo);
         c.glBufferData(
             c.GL_ARRAY_BUFFER,
-            @intCast(data.plane_vertices.len * r.max_num_meshes * @sizeOf(Vertex)),
+            @intCast(data.plane_vertices.len * self.max_num_meshes * @sizeOf(Vertex)),
             null,
             c.GL_DYNAMIC_DRAW
         );
         c.glEnableVertexAttribArray(0);
-        c.glVertexAttribPointer(
-            0,
-            4,
-            c.GL_FLOAT,
-            c.GL_FALSE,
-            @sizeOf(Vertex),
-            @ptrFromInt(@offsetOf(Vertex, "position"))
-        );
+        c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "position")));
         c.glEnableVertexAttribArray(1);
-        c.glVertexAttribPointer(
-            1,
-            4,
-            c.GL_FLOAT,
-            c.GL_FALSE,
-            @sizeOf(Vertex),
-            @ptrFromInt(@offsetOf(Vertex, "color"))
-        );
+        c.glVertexAttribPointer(1, 4, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "color")));
         c.glEnableVertexAttribArray(2);
-        c.glVertexAttribPointer(
-            2,
-            2,
-            c.GL_FLOAT,
-            c.GL_FALSE,
-            @sizeOf(Vertex),
-            @ptrFromInt(@offsetOf(Vertex, "uv"))
-        );
+        c.glVertexAttribPointer(2, 2, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "uv")));
         c.glEnableVertexAttribArray(3);
-        c.glVertexAttribPointer(
-            3,
-            1,
-            c.GL_FLOAT,
-            c.GL_FALSE,
-            @sizeOf(Vertex),
-            @ptrFromInt(@offsetOf(Vertex, "tex_idx"))
-        );
+        c.glVertexAttribPointer(3, 1, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "tex_idx")));
 
-        const num_indices = data.plane_indices.len * r.max_num_meshes;
+        const num_indices = data.plane_indices.len * self.max_num_meshes;
         var indices = try ArrayList(c.GLuint).initCapacity(allocator, num_indices);
         defer indices.deinit();
 
@@ -264,17 +253,17 @@ pub const Renderer = struct {
             indices.appendAssumeCapacity(@intCast(data.plane_indices[i % data.plane_indices.len] + data.plane_vertices.len * (i / data.plane_indices.len)));
         }
 
-        c.glGenBuffers(1, &r.ibo);
-        c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, r.ibo);
+        c.glGenBuffers(1, &self.ibo);
+        c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, self.ibo);
         c.glBufferData(
             c.GL_ELEMENT_ARRAY_BUFFER,
-            @intCast(data.plane_indices.len * r.max_num_meshes * @sizeOf(c.GLuint)),
+            @intCast(data.plane_indices.len * self.max_num_meshes * @sizeOf(c.GLuint)),
             @ptrCast(indices.items),
             c.GL_STATIC_DRAW
         );
         c.glBindVertexArray(0);
 
-        return r;
+        return self;
     }
 
     pub fn deinit(self: *Self) void {
@@ -298,10 +287,6 @@ pub const Renderer = struct {
     pub fn loadSlideData(self: *Self, slide_show: *SlideShow) void {
         for (slide_show.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
-                if (section.section_type == .text) {
-                    self.font_data.addFontSize(section.text_size);
-                    continue;
-                }
                 if (section.section_type != .image) continue;
                 if (self.textures.contains(section.data.text.items)) continue;
 
@@ -329,38 +314,67 @@ pub const Renderer = struct {
         const slide = current_slide.?;
         clearScreen(slide.background_color);
 
-        const line_spacing: usize = 2; // TODO: will be set in the slide files in the future
-        var cursor_y = slide.sections.items[0].text_size; // y position in pixels
-        var cursor_x = slide.sections.items[0].text_size; // x position in pixels
-        _ = &cursor_x; // TODO: remove
+        const line_spacing: f32 = 2.0; // will be set in the slide files in the future
+        const yadvance: f32 = @as(f32, @floatFromInt(self.font_data.ascent - self.font_data.descent + self.font_data.line_gap)) + line_spacing;
+        var cursor_x: f32 = 0; // x position in font metric units
+        var cursor_y: f32 = 0; // y baseline position in font metric units
 
         for (slide.sections.items) |*section| {
-            const scale_factor = @as(f32, @floatFromInt(section.text_size)) / @as(f32, @floatFromInt(state.window_state.vp_size_y)); // TODO: calc that with the font data
-            const image_scale = zlm.Mat4.scaleFromFactor(scale_factor);
+            const window_scale_factor = @as(f32, @floatFromInt(section.text_size)) / @as(f32, @floatFromInt(data.viewport_resolution_reference[1]));
 
             switch (section.section_type) {
                 .space => {
-                    cursor_y += section.text_size;
-                    cursor_y += line_spacing;
+                    cursor_y += yadvance * @as(f32, @floatFromInt(section.data.lines));
                 },
                 .text => {
-                    const position = zlm.Vec3.zero; // TODO
-                    const trafo = zlm.Mat4.translation(position).mul(image_scale);
-                    const tex_id: c.GLuint = 0; // TODO
+                    const used_font_size_index = fontSizeIndex(section.text_size);
+                    const used_font_size = baked_font_sizes[used_font_size_index];
+                    const font_storage = self.font_data.baked_fonts[used_font_size_index];
+
+                    const font_scale = window_scale_factor * @as(f32, @floatFromInt(used_font_size)) / @as(f32, @floatFromInt(self.font_data.ascent - self.font_data.descent));
+                    const scale = zlm.Mat4.scaleFromFactor(font_scale);
+
+                    const tex_id: c.GLuint = font_storage.texture;
+
                     for (section.data.text.items) |char| {
-                        if (char == '\n') {
-                            cursor_y += line_spacing; // TODO: other special chars and an x axis cursor
+                        const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
+
+                        switch (char) {
+                            '\n' => {
+                                cursor_y += yadvance;
+                                cursor_x = 0;
+                            },
+                            ' ' => {
+                                cursor_x += baked_char.xadvance;
+                            },
+                            else => {
+                                const x_pos = cursor_x + baked_char.xoff + @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / 2.0;
+                                const y_pos = cursor_y + baked_char.yoff + @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)) / 2.0;
+                                const position = zlm.vec3(x_pos, y_pos, 1.0); // the z coord might change in the future with support for layers
+                                const trafo = zlm.Mat4.translation(position).mul(scale);
+
+                                const font_texture_side_pixel_size: f32 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
+                                const u_coord_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
+                                const v_coord_0 = @as(f32, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
+                                const u_coord_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
+                                const v_coord_1 = @as(f32, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
+                                const uv_scale = zlm.vec2(u_coord_1 - u_coord_0, v_coord_1 - v_coord_0);
+                                const uv_offset = zlm.vec2(u_coord_0, v_coord_0);
+
+                                _ = self.addTexQuad(trafo, tex_id, uv_scale, uv_offset); // TODO: return value
+                                cursor_x += baked_char.xadvance;
+                            },
                         }
-                        _ = try self.addTexQuad(trafo, tex_id); // TODO: return value
                     }
-                    cursor_y += line_spacing;
+                    cursor_y += yadvance;
                 },
                 .image => {
-                    const position = zlm.Vec3.zero; // TODO
+                    const image_scale = zlm.Mat4.scaleFromFactor(window_scale_factor);
+                    const position = zlm.vec3(0.0, 0.0, 1.0); // the z coord might change in the future with support for layers
                     const trafo = zlm.Mat4.translation(position).mul(image_scale);
                     const tex_id = self.textures.get(section.data.text.items).?;
-                    _ = try self.addTexQuad(trafo, tex_id); // TODO: return value
-                    cursor_y += line_spacing;
+                    _ = self.addTexQuad(trafo, tex_id, zlm.Vec2.one, zlm.Vec2.zero); // TODO: return value
+                    cursor_y += yadvance;
                 },
             }
         }
@@ -412,7 +426,7 @@ pub const Renderer = struct {
         self.obj_buffer.clearRetainingCapacity();
     }
 
-    fn addTexQuad(self: *Self, trafo: zlm.Mat4, tex_id: c.GLuint) !bool {
+    fn addTexQuad(self: *Self, trafo: zlm.Mat4, tex_id: c.GLuint, uv_scale: zlm.Vec2, uv_offset: zlm.Vec2) bool {
         // determine texture index
         var tex_idx: c.GLfloat = -1.0;
         for (0..self.all_tex_ids.items.len) |i| {
@@ -428,38 +442,36 @@ pub const Renderer = struct {
                 return false;
             }
             tex_idx = @floatFromInt(self.all_tex_ids.items.len + 1);
-            try self.all_tex_ids.append(tex_id);
+            self.all_tex_ids.append(tex_id) catch @panic("allocation error");
         }
         if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
             return false;
         }
         // copy mesh vertex data into the object buffer
         for (0..data.plane_vertices.len) |i| {
-            const v4 = zlm.vec4(data.plane_vertices[i].x, data.plane_vertices[i].y, data.plane_vertices[i].z, 1.0);
-            try self.obj_buffer.append(.{
-                .position = v4.transform(trafo),
+            self.obj_buffer.append(.{
+                .position = data.plane_vertices[i].transform4(trafo),
                 .color = zlm.Vec4.fromElement(1.0),
-                .uv = data.plane_uvs[i],
+                .uv = data.plane_uvs[i].mul(uv_scale).add(uv_offset),
                 .tex_idx = tex_idx,
-            });
+            }) catch @panic("allocation error");
         }
         self.index_count += data.plane_indices.len;
         return true;
     }
 
-    fn addColorQuad(self: Self, trafo: zlm.Mat4, color: data.Color32) !bool {
+    fn addColorQuad(self: Self, trafo: zlm.Mat4, color: data.Color32) bool {
         if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
             return false;
         }
         // copy mesh vertex data into the object buffer
         for (0..data.plane_vertices.len) |i| {
-            const v4 = zlm.vec4(data.plane_vertices[i].x, data.plane_vertices[i].y, data.plane_vertices[i].z, 1.0);
-            try self.obj_buffer.append(.{
-                .position = v4.transform(trafo),
+            self.obj_buffer.append(.{
+                .position = data.plane_vertices[i].transform4(trafo),
                 .color = color.toVec4(),
                 .uv = data.plane_uvs[i],
                 .tex_idx = 0.0, // white texture
-            });
+            }) catch @panic("allocation error");
         }
         self.index_count += data.plane_indices.len;
         return true;
