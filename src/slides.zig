@@ -46,7 +46,7 @@ const Lexer = struct {
 
     fn head(self: *Self) u8 {
         const char = self.input[self.ptr];
-        if (char == '\t') return ' ';
+        if (char == '\t') return ' '; // we don't want tabs in the final text
         return char;
     }
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 pub const String = std.ArrayList(u8);
 const c = @import("c.zig");
-const zlm = @import("linalg.zig");
+const lina = @import("linalg.zig");
 
 pub const Color32 = struct {
     r: u8 = 0,
@@ -20,12 +20,12 @@ pub const Color32 = struct {
         };
     }
 
-    pub fn toVec4(self: Color32) zlm.Vec4 {
+    pub fn toVec4(self: Color32) lina.Vec4 {
         const r = @as(f32, @floatFromInt(self.r)) / 255.0;
         const g = @as(f32, @floatFromInt(self.g)) / 255.0;
         const b = @as(f32, @floatFromInt(self.b)) / 255.0;
         const a = @as(f32, @floatFromInt(self.a)) / 255.0;
-        return zlm.vec4(r, g, b, a);
+        return lina.vec4(r, g, b, a);
     }
 
     pub fn fromHex(hex: []const u8) ?Color32 {
@@ -113,25 +113,25 @@ pub const fragment_shader: [*:0]const u8 =
     \\}
 ;
 
-pub const plane_vertices = [4]zlm.Vec3{
-    zlm.vec3(-0.5, -0.5, 0.0),
-    zlm.vec3(0.5, 0.5, 0.0),
-    zlm.vec3(-0.5, 0.5, 0.0),
-    zlm.vec3(0.5, -0.5, 0.0)
+pub const plane_vertices = [4]lina.Vec3{
+    lina.vec3(0.0, -1.0, 0.0),
+    lina.vec3(1.0, 0.0, 0.0),
+    lina.vec3(0.0, 0.0, 0.0),
+    lina.vec3(1.0, -1.0, 0.0)
 };
 
-pub const plane_uvs = [4]zlm.Vec2{
-    zlm.vec2(0.0, 1.0),
-    zlm.vec2(1.0, 0.0),
-    zlm.vec2(0.0, 0.0),
-    zlm.vec2(1.0, 1.0)
+pub const plane_uvs = [4]lina.Vec2{
+    lina.vec2(0.0, 1.0),
+    lina.vec2(1.0, 0.0),
+    lina.vec2(0.0, 0.0),
+    lina.vec2(1.0, 1.0)
 };
 
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
 
 pub const default_font: [:0]const u8 = @embedFile("fonts/DMSerifText-Regular.ttf");
 pub const first_char: c_int = 32;
-pub const glyph_count: c_int = 126 - first_char;
+pub const glyph_count: c_int = 255 - first_char;
 
 // this determines the scaling of the text in rendering, the font size relative to the window size should not change
-pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080 };
+pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080 }; // @Cleanup: in the future, when the format of the slides can be changed, this needs to be updated as well
