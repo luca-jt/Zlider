@@ -11,6 +11,7 @@ fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
     var string = String.fromOwnedSlice(allocator, buffer);
     try string.append(0); // do this for lexing pointer stuff
+    errdefer string.deinit();
     return string;
 }
 
