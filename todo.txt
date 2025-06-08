@@ -1,7 +1,5 @@
-slide file hot reloading
 font option
 line spacing, line breaking
-open the program without file, drag and drop files to load
+slide file hot reloading
 use the text alignment in the secions
 image positioning
-memory allocation cleanup -> less panics

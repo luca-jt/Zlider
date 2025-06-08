@@ -32,9 +32,9 @@ const Lexer = struct {
 
     const Self = @This();
 
-    fn initWithInput(allocator: Allocator, input: []const u8) Self {
+    fn initWithInput(allocator: Allocator, input: []const u8) !Self {
         return .{
-            .buffer = String.init(allocator),
+            .buffer = try String.initCapacity(allocator, input.len), // the buffer is sure to only ever contain the entire input at most, so this enables us to minimize allocations
             .allocator = allocator,
             .input = input,
         };
@@ -66,17 +66,17 @@ const Lexer = struct {
         }
     }
 
-    fn readChar(self: *Self) !void {
-        try self.buffer.append(self.head());
+    fn readChar(self: *Self) void {
+        self.buffer.appendAssumeCapacity(self.head());
         self.ptr += 1;
     }
 
-    fn readNextWord(self: *Self) ![]const u8 {
+    fn readNextWord(self: *Self) SlidesParseError![]const u8 {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
 
         while (self.head() != 0 and self.head() != ' ' and self.head() != '\t' and self.head() != '\n') {
-            try self.readChar();
+            self.readChar();
         }
         if (self.buffer.items.len == 0) {
             print("Line: {} | ", .{self.line});
@@ -85,12 +85,12 @@ const Lexer = struct {
         return self.buffer.items;
     }
 
-    fn readUntilNewLine(self: *Self) ![]const u8 {
+    fn readUntilNewLine(self: *Self) []const u8 {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
 
         while (self.head() != 0 and self.head() != '\n') {
-            try self.readChar();
+            self.readChar();
         }
         while (self.buffer.getLastOrNull()) |last| {
             if (last != ' ' and last != '\t') break;
@@ -134,28 +134,37 @@ const Lexer = struct {
                     .left => .left,
                     .right => .right,
                     .text => blk: {
-                        _ = try self.readUntilNewLine();
+                        _ = self.readUntilNewLine();
                         var text = String.init(self.allocator);
-                        var line = try self.readUntilNewLine();
+                        var line = self.readUntilNewLine();
 
                         while (line.len != 0) {
                             if (std.mem.eql(u8, line, "text")) break;
                             try text.appendSlice(line);
                             try text.append('\n');
-                            line = try self.readUntilNewLine();
+                            line = self.readUntilNewLine();
                         } else {
                             print("Line: {} | ", .{self.line});
+                            text.deinit();
                             return SlidesParseError.LexerNoClosingKeyword;
                         }
                         break :blk .{ .text = text };
                     },
                     .space => blk: {
                         const int_string = try self.readNextWord();
-                        break :blk .{ .space = try std.fmt.parseInt(usize, int_string, 10) };
+                        const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
+                            print("Line: {} | ", .{self.line});
+                            return SlidesParseError.LexerInvalidToken;
+                        };
+                        break :blk .{ .space = parsed_int };
                     },
                     .text_size => blk: {
                         const int_string = try self.readNextWord();
-                        break :blk .{ .text_size = try std.fmt.parseInt(usize, int_string, 10) };
+                        const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
+                            print("Line: {} | ", .{self.line});
+                            return SlidesParseError.LexerInvalidToken;
+                        };
+                        break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
                         const path_slice = try self.readNextWord();
@@ -166,7 +175,7 @@ const Lexer = struct {
                 };
                 break;
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
-                _ = try self.readUntilNewLine();
+                _ = self.readUntilNewLine();
             } else {
                 print("Line: {} | ", .{self.line});
                 return SlidesParseError.LexerUnknownKeyword;
@@ -233,8 +242,8 @@ pub const SlideShow = struct {
     }
 
     pub fn loadSlides(self: *Self, file_path: [:0]const u8) void {
-        const file_contents = readEntireFile(file_path, self.allocator) catch {
-            print("Unable to read file: {s}\n", .{file_path});
+        const file_contents = readEntireFile(file_path, self.allocator) catch |err| {
+            print("{s} | Unable to read file: {s}\n", .{@errorName(err), file_path});
             return;
         };
         defer file_contents.deinit();
@@ -282,7 +291,7 @@ pub const SlideShow = struct {
     }
 
     fn parseSlideShow(self: *Self, file_contents: *const String) !void {
-        var lexer = Lexer.initWithInput(self.allocator, file_contents.items);
+        var lexer = try Lexer.initWithInput(self.allocator, file_contents.items);
         defer lexer.deinit();
 
         var slide = Slide.init(self.allocator);

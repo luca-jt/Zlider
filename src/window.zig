@@ -84,9 +84,9 @@ fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const 
     const path: [:0]const u8 = std.mem.span(paths[0]); // assumed to be null-terminated
 
     std.log.info("Dropped slides file: {s}", .{path});
-    // TODO: here the slides and the state.renderer must be cleaned up first
-    //state.slide_show.loadSlides(path);
-    //state.renderer.loadSlideData(&state.slide_show);
+    state.renderer.clear();
+    state.slide_show.loadSlides(path);
+    state.renderer.loadSlideData(&state.slide_show);
 }
 
 pub fn setEventConfig(window: *c.GLFWwindow) void {

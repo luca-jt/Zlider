@@ -156,7 +156,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             pub usingnamespace VectorFunctions(Self);
 
             pub fn new(x: T, y: T) Self {
-                return Self{
+                return .{
                     .x = x,
                     .y = y,
                 };
@@ -196,7 +196,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             pub usingnamespace VectorFunctions(Self);
 
             pub fn new(x: T, y: T, z: T) Self {
-                return Self{
+                return .{
                     .x = x,
                     .y = y,
                     .z = z,
@@ -204,7 +204,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             }
 
             pub fn cross(a: Self, b: Self) Self {
-                return Self{
+                return .{
                     .x = a.y * b.z - a.z * b.y,
                     .y = a.z * b.x - a.x * b.z,
                     .z = a.x * b.y - a.y * b.x,
@@ -261,7 +261,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             pub usingnamespace VectorFunctions(Self);
 
             pub fn new(x: T, y: T, z: T, w: T) Self {
-                return Self{
+                return .{
                     .x = x,
                     .y = y,
                     .z = z,
@@ -296,14 +296,14 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             const Self = @This();
 
-            pub const zero = Mat2{
+            pub const zero = Self{
                 .fields = [2][2]T{
                     [2]T{ 0, 0 },
                     [2]T{ 0, 0 },
                 },
             };
 
-            pub const identity = Mat2{
+            pub const identity = Self{
                 .fields = [2][2]T{
                     [2]T{ 1, 0 },
                     [2]T{ 0, 1 },
@@ -340,7 +340,7 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             const Self = @This();
 
-            pub const zero = Mat3{
+            pub const zero = Self{
                 .fields = [3][3]T{
                     [3]T{ 0, 0, 0 },
                     [3]T{ 0, 0, 0 },
@@ -348,7 +348,7 @@ pub fn LinAlgTypes(comptime T: type) type {
                 },
             };
 
-            pub const identity = Mat3{
+            pub const identity = Self{
                 .fields = [3][3]T{
                     [3]T{ 1, 0, 0 },
                     [3]T{ 0, 1, 0 },
@@ -470,10 +470,10 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub fn perspective(fov: T, aspect: T, near: T, far: T) Self {
                 std.debug.assert(@abs(aspect - 0.001) > 0);
-                const tanHalfFovy = @tan(fov / 2);
+                const tan_half_fov = @tan(fov / 2);
                 var result = Self.zero;
-                result.fields[0][0] = 1.0 / (aspect * tanHalfFovy);
-                result.fields[1][1] = 1.0 / (tanHalfFovy);
+                result.fields[0][0] = 1.0 / (aspect * tan_half_fov);
+                result.fields[1][1] = 1.0 / (tan_half_fov);
                 result.fields[2][2] = - (far + near) / (far - near);
                 result.fields[2][3] = - (2 * far * near) / (far - near);
                 result.fields[3][2] = - 1;
@@ -501,7 +501,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             }
 
             pub fn scale(v: Vec3) Self {
-                return Self{
+                return .{
                     .fields = [4][4]T{
                         [4]T{ v.x, 0, 0, 0 },
                         [4]T{ 0, v.y, 0, 0 },
@@ -512,7 +512,7 @@ pub fn LinAlgTypes(comptime T: type) type {
             }
 
             pub fn translation(v: Vec3) Self {
-                return Self{
+                return .{
                     .fields = [4][4]T{
                         [4]T{ 1, 0, 0, v.x },
                         [4]T{ 0, 1, 0, v.y },

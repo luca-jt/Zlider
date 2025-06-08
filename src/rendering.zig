@@ -26,7 +26,7 @@ fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
         var len: c.GLint = 0;
         c.glGetShaderiv(shader, c.GL_INFO_LOG_LENGTH, &len);
         var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("error allocating buffer");
+        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
         defer std.heap.page_allcator.free(buf);
         c.glGetShaderInfoLog(shader, len, null, buf);
         @panic(buf);
@@ -52,7 +52,7 @@ fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
         var len: c.GLint = 0;
         c.glGetProgramiv(program, c.GL_INFO_LOG_LENGTH, &len);
         var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("error allocating buffer");
+        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
         defer std.heap.page_allcator.free(buf);
         c.glGetProgramInfoLog(program, len, null, buf);
         @panic(buf);
@@ -124,11 +124,11 @@ const FontStorage = extern struct {
 
     const Self = @This();
 
-    fn init(allocator: Allocator, font_size: usize, buffer_side_size: usize) Self {
+    fn initWithFontData(allocator: Allocator, font_size: usize, buffer_side_size: usize) !Self {
         var self: Self = .{};
 
         const size = buffer_side_size;
-        const buffer = allocator.alloc(u8, size * size) catch @panic("allocation error");
+        const buffer = try allocator.alloc(u8, size * size);
         defer allocator.free(buffer);
         _ = c.stbtt_BakeFontBitmap(data.default_font, 0, @floatFromInt(font_size), @ptrCast(buffer), @intCast(size), @intCast(size), data.first_char, data.glyph_count, &self.baked_chars);
 
@@ -140,10 +140,6 @@ const FontStorage = extern struct {
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST_MIPMAP_LINEAR);
 
         return self;
-    }
-
-    fn deinit(self: Self) void {
-        c.glDeleteTextures(1, &self.texture);
     }
 };
 
@@ -170,7 +166,7 @@ const FontData = struct {
 
     const Self = @This();
 
-    fn init(allocator: Allocator) Self {
+    fn init(allocator: Allocator) !Self {
         var self = Self{ .allocator = allocator };
 
         std.debug.assert(c.stbtt_InitFont(&self.font_info, data.default_font, 0) != 0);
@@ -187,15 +183,14 @@ const FontData = struct {
         self.font_texture_side_pixel_size = @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(@max(x_diff, y_diff))) * c.stbtt_ScaleForPixelHeight(&self.font_info, max_pixel_size) * @sqrt(@as(f32, @floatFromInt(data.glyph_count))))));
 
         for (0..builtin_font_size_count) |i| {
-            self.baked_fonts[i] = FontStorage.init(self.allocator, baked_font_sizes[i], self.font_texture_side_pixel_size);
+            self.baked_fonts[i] = try FontStorage.initWithFontData(self.allocator, baked_font_sizes[i], self.font_texture_side_pixel_size);
         }
-
         return self;
     }
 
     fn deinit(self: *Self) void {
         for (&self.baked_fonts) |*storage| {
-            storage.deinit();
+            c.glDeleteTextures(1, &storage.texture);
         }
     }
 };
@@ -227,7 +222,7 @@ pub const Renderer = struct {
             .all_tex_ids = try ArrayList(c.GLuint).initCapacity(allocator, max_texture_count - 1),
             .max_num_meshes = max_num_meshes,
             .textures = StringHashMap(c.GLuint).init(allocator),
-            .font_data = FontData.init(allocator),
+            .font_data = try FontData.init(allocator),
             .allocator = allocator,
         };
 
@@ -289,6 +284,15 @@ pub const Renderer = struct {
         self.font_data.deinit();
     }
 
+    pub fn clear(self: *Self) void {
+        self.obj_buffer.clearRetainingCapacity();
+        var iterator = self.textures.valueIterator();
+        while (iterator.next()) |tex_id| {
+            c.glDeleteTextures(1, tex_id);
+        }
+        self.textures.clearRetainingCapacity();
+    }
+
     pub fn loadSlideData(self: *Self, slide_show: *SlideShow) void {
         for (slide_show.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
@@ -299,13 +303,10 @@ pub const Renderer = struct {
                 var height: c_int = undefined;
                 var num_channels: c_int = undefined;
                 const image_data = c.stbi_load(@ptrCast(section.data.text.items), &width, &height, &num_channels, 4);
-                if (num_channels != 4) {
-                    @panic("Image source does not have RGBA channels.");
-                }
 
                 const tex_id = generateTexture(image_data, width, height);
                 c.stbi_image_free(image_data);
-                self.textures.put(section.data.text.items, tex_id) catch @panic("error inserting texture");
+                self.textures.put(section.data.text.items, tex_id) catch @panic("allocation error");
             }
         }
     }
@@ -366,9 +367,9 @@ pub const Renderer = struct {
                                 const uv_scale = lina.vec2(u_coord_1 - u_coord_0, v_coord_1 - v_coord_0);
                                 const uv_offset = lina.vec2(u_coord_0, v_coord_0);
 
-                                if (!self.addTexQuad(trafo, tex_id, uv_scale, uv_offset)) {
+                                if (!try self.addTexQuad(trafo, tex_id, uv_scale, uv_offset)) {
                                     self.flush();
-                                    std.debug.assert(self.addTexQuad(trafo, tex_id, uv_scale, uv_offset));
+                                    std.debug.assert(try self.addTexQuad(trafo, tex_id, uv_scale, uv_offset));
                                 }
                                 cursor_x += baked_char.xadvance;
                             },
@@ -381,9 +382,9 @@ pub const Renderer = struct {
                     const position = lina.vec3(0.0, 0.0, 1.0); // the z coord might change in the future with support for layers
                     const trafo = lina.Mat4.translation(position).mul(image_scale);
                     const tex_id = self.textures.get(section.data.text.items).?;
-                    if (!self.addTexQuad(trafo, tex_id, lina.Vec2.one, lina.Vec2.zero)) {
+                    if (!try self.addTexQuad(trafo, tex_id, lina.Vec2.one, lina.Vec2.zero)) {
                         self.flush();
-                        std.debug.assert(self.addTexQuad(trafo, tex_id, lina.Vec2.one, lina.Vec2.zero));
+                        std.debug.assert(try self.addTexQuad(trafo, tex_id, lina.Vec2.one, lina.Vec2.zero));
                     }
                     cursor_y += yadvance;
                 },
@@ -436,7 +437,7 @@ pub const Renderer = struct {
         self.obj_buffer.clearRetainingCapacity();
     }
 
-    fn addTexQuad(self: *Self, trafo: lina.Mat4, tex_id: c.GLuint, uv_scale: lina.Vec2, uv_offset: lina.Vec2) bool {
+    fn addTexQuad(self: *Self, trafo: lina.Mat4, tex_id: c.GLuint, uv_scale: lina.Vec2, uv_offset: lina.Vec2) !bool {
         // determine texture index
         var tex_idx: c.GLfloat = -1.0;
         for (0..self.all_tex_ids.items.len) |i| {
@@ -456,7 +457,7 @@ pub const Renderer = struct {
         }
         if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
             // resize batch if size is exceeded
-            self.resizeBuffer();
+            try self.resizeBuffer();
         }
         // copy mesh vertex data into the object buffer
         for (0..data.plane_vertices.len) |i| {
@@ -471,10 +472,10 @@ pub const Renderer = struct {
         return true;
     }
 
-    fn addColorQuad(self: Self, trafo: lina.Mat4, color: data.Color32) void {
+    fn addColorQuad(self: Self, trafo: lina.Mat4, color: data.Color32) !void {
         if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
             // resize batch if size is exceeded
-            self.resizeBuffer();
+            try self.resizeBuffer();
         }
         // copy mesh vertex data into the object buffer
         for (0..data.plane_vertices.len) |i| {
@@ -488,10 +489,10 @@ pub const Renderer = struct {
         self.index_count += data.plane_indices.len;
     }
 
-    fn resizeBuffer(self: *Self) void {
+    fn resizeBuffer(self: *Self) !void {
         const add_size = self.max_num_meshes * 2;
         self.max_num_meshes += add_size;
-        self.obj_buffer.ensureTotalCapacity(self.max_num_meshes) catch @panic("allocation error");
+        try self.obj_buffer.ensureTotalCapacity(self.max_num_meshes);
 
         c.glBindBuffer(c.GL_ARRAY_BUFFER, self.vbo);
         c.glBufferData(
@@ -502,7 +503,7 @@ pub const Renderer = struct {
         );
 
         const num_indices = data.plane_indices.len * self.max_num_meshes;
-        var indices = ArrayList(c.GLuint).initCapacity(self.allocator, num_indices) catch @panic("allocation error");
+        var indices = try ArrayList(c.GLuint).initCapacity(self.allocator, num_indices);
         defer indices.deinit();
 
         for (0..num_indices) |i| {
