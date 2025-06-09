@@ -1,5 +1,4 @@
 font option
-line spacing, line breaking
+line spacing, line breaking, image scaling
 slide file hot reloading
 use the text alignment in the secions
-image positioning

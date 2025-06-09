@@ -22,11 +22,11 @@ fn resizeViewport(width: u32, height: u32) void {
 
     if (viewport_ratio < regular_ratio) {
         const forced_width: u32 = @intFromFloat(@as(f32, @floatFromInt(h)) * viewport_ratio);
-        vp_x = (w / forced_width) / 2;
+        vp_x = (w - forced_width) / 2;
         w = forced_width;
-    } else {
+    } else if (viewport_ratio > regular_ratio) {
         const forced_height: u32 = @intFromFloat(@as(f32, @floatFromInt(w)) / viewport_ratio);
-        vp_y = (h / forced_height) / 2;
+        vp_y = (h - forced_height) / 2;
         h = forced_height;
     }
 
