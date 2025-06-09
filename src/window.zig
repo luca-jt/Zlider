@@ -80,12 +80,10 @@ fn windowPosCallback(window: ?*c.GLFWwindow, xpos: c_int, ypos: c_int) callconv(
 
 fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const u8) callconv(.c) void {
     if (path_count != 1) return;
-    _ = window;
     const path: [:0]const u8 = std.mem.span(paths[0]); // assumed to be null-terminated
 
-    std.log.info("Dropped slides file: {s}", .{path});
     state.renderer.clear();
-    state.slide_show.loadSlides(path);
+    state.slide_show.loadSlides(path, window) catch @panic("allocation error");
     state.renderer.loadSlideData(&state.slide_show);
 }
 
@@ -182,7 +180,7 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
 
         var slide_file_name = String.init(allocator);
         defer slide_file_name.deinit();
-        try slide_file_name.appendSlice(state.slide_show.title);
+        try slide_file_name.appendSlice(state.slide_show.titleSlice());
         try slide_file_name.appendSlice("_000");
         try slide_file_name.append(0);
 

@@ -5,10 +5,6 @@ const win = @import("window.zig");
 const rendering = @import("rendering.zig");
 const state = @import("state.zig");
 
-pub const std_options: std.Options = .{
-    .log_level = .info,
-};
-
 pub fn main() !void {
     var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
     const allocator = alloc.allocator();
@@ -16,10 +12,10 @@ pub fn main() !void {
     defer args.deinit();
     std.debug.assert(args.skip()); // skip the program name
 
-    state.slide_show = slides.SlideShow.init(allocator);
+    state.slide_show = try slides.SlideShow.init(allocator);
     defer state.slide_show.deinit();
 
-    const window = win.initWindow(800, 450, state.slide_show.title);
+    const window = win.initWindow(800, 450, state.slide_show.titleSentinelSlice());
     defer win.closeWindow(window);
     win.setEventConfig(window);
 
@@ -27,7 +23,7 @@ pub fn main() !void {
     defer state.renderer.deinit();
 
     if (args.next()) |file_path| {
-        state.slide_show.loadSlides(file_path);
+        try state.slide_show.loadSlides(file_path, window);
         state.renderer.loadSlideData(&state.slide_show);
 
         if (args.skip()) {

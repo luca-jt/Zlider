@@ -20,12 +20,13 @@ pub const SlidesParseError = error {
     LexerNoClosingKeyword,
     LexerUnknownKeyword,
     LexerInvalidToken,
-    ParserEmptySlide,
+    EmptySlide,
     TooManySlides,
+    InvalidFile,
 };
 
 const Lexer = struct {
-    line: usize = 0,
+    line: usize = 1,
     buffer: String,
     input: []const u8,
     ptr: usize = 0,
@@ -116,7 +117,7 @@ const Lexer = struct {
                         if (parsed_color) |color| {
                             break :blk .{ .text_color = color };
                         } else {
-                            print("Line: {} | ", .{self.line});
+                            print("Line {}: '{s}' | ", .{self.line, color_string});
                             return SlidesParseError.LexerInvalidToken;
                         }
                     },
@@ -126,7 +127,7 @@ const Lexer = struct {
                         if (parsed_color) |color| {
                             break :blk .{ .bg = color };
                         } else {
-                            print("Line: {} | ", .{self.line});
+                            print("Line {}: '{s}' | ", .{self.line, color_string});
                             return SlidesParseError.LexerInvalidToken;
                         }
                     },
@@ -145,7 +146,7 @@ const Lexer = struct {
                             try text.append('\n');
                             line = self.readUntilNewLine();
                         } else {
-                            print("Line: {} | ", .{self.line});
+                            print("Line {}: ", .{self.line});
                             text.deinit();
                             return SlidesParseError.LexerNoClosingKeyword;
                         }
@@ -154,7 +155,7 @@ const Lexer = struct {
                     .space => blk: {
                         const int_string = try self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            print("Line: {} | ", .{self.line});
+                            print("Line {}: '{s}' | ", .{self.line, int_string});
                             return SlidesParseError.LexerInvalidToken;
                         };
                         break :blk .{ .space = parsed_int };
@@ -162,13 +163,17 @@ const Lexer = struct {
                     .text_size => blk: {
                         const int_string = try self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            print("Line: {} | ", .{self.line});
+                            print("Line {}: '{s}' | ", .{self.line, int_string});
                             return SlidesParseError.LexerInvalidToken;
                         };
                         break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
                         const path_slice = try self.readNextWord();
+                        std.fs.cwd().access(path_slice, .{}) catch |err| {
+                            print("Line {}: '{s}' | ", .{self.line, path_slice});
+                            return err;
+                        };
                         var path = String.init(self.allocator);
                         try path.appendSlice(path_slice);
                         break :blk .{ .image = path };
@@ -178,7 +183,7 @@ const Lexer = struct {
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
                 _ = self.readUntilNewLine();
             } else {
-                print("Line: {} | ", .{self.line});
+                print("Line {}: '{s}' | ", .{self.line, next_word});
                 return SlidesParseError.LexerUnknownKeyword;
             }
         }
@@ -217,16 +222,20 @@ pub const Slide = struct {
 pub const SlideShow = struct {
     slides: ArrayList(Slide),
     slide_index: usize = 0,
-    title: [:0]const u8 = "Zlider",
+    title: String, // this string always contains a null-terminated sequence of bytes due to the data source
     allocator: Allocator,
 
     const Self = @This();
 
-    pub fn init(allocator: Allocator) Self {
-        return .{
+    pub fn init(allocator: Allocator) !Self {
+        var self = Self{
             .slides = ArrayList(Slide).init(allocator),
+            .title = String.init(allocator),
             .allocator = allocator,
         };
+        try self.title.appendSlice("Zlider");
+        try self.title.append(0); // null-termination is needed
+        return self;
     }
 
     pub fn deinit(self: Self) void {
@@ -240,16 +249,26 @@ pub const SlideShow = struct {
             slide.sections.deinit();
         }
         self.slides.deinit();
+        self.title.deinit();
     }
 
-    pub fn loadSlides(self: *Self, file_path: [:0]const u8) void {
-        const file_contents = readEntireFile(file_path, self.allocator) catch |err| {
-            print("{s} | Unable to read file: {s}\n", .{@errorName(err), file_path});
+    pub fn titleSlice(self: *Self) []const u8 {
+        return self.title.items[0..self.title.items.len - 1];
+    }
+
+    pub fn titleSentinelSlice(self: *Self) [:0]const u8 {
+        return self.title.items[0..self.title.items.len - 1 :0];
+    }
+
+    pub fn loadSlides(self: *Self, file_path: [:0]const u8, window: ?*c.GLFWwindow) !void {
+        const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
+        defer self.allocator.free(full_file_path);
+
+        const file_contents = readEntireFile(full_file_path, self.allocator) catch |err| {
+            print("{s} | Unable to read file: {s}\n", .{@errorName(err), full_file_path});
             return;
         };
         defer file_contents.deinit();
-
-        self.title = file_path;
 
         for (self.slides.items) |*slide| {
             for (slide.sections.items) |section| {
@@ -263,17 +282,16 @@ pub const SlideShow = struct {
         self.slides.clearRetainingCapacity();
 
         self.parseSlideShow(&file_contents) catch |e| {
-            switch (e) {
-                SlidesParseError.LexerNoKeywordValue => print("Lexer Error: missing keyword", .{}),
-                SlidesParseError.LexerNoClosingKeyword => print("Lexer Error: no closing keyword", .{}),
-                SlidesParseError.LexerUnknownKeyword => print("Lexer Error: unknown keyword", .{}),
-                SlidesParseError.LexerInvalidToken => print("Lexer Error: invalid token", .{}),
-                SlidesParseError.ParserEmptySlide => print("Parser Error: missing keyword", .{}),
-                SlidesParseError.TooManySlides => print("Parser Error: missing keyword", .{}),
-                else => |err| print("Unexpected error: {s}", .{@errorName(err)}),
-            }
-            print("\nUnable to parse slide show file: {s}\n", .{file_path});
+            print("{s}", .{@errorName(e)});
+            print("\nUnable to parse slide show file: {s}\n", .{full_file_path});
+            return;
         };
+
+        self.title.clearRetainingCapacity();
+        try self.title.appendSlice("Zlider | ");
+        try self.title.appendSlice(full_file_path);
+        try self.title.append(0); // null-termination is needed
+        c.glfwSetWindowTitle(window, self.titleSentinelSlice());
     }
 
     pub fn currentSlide(self: *Self) ?*Slide {
@@ -311,7 +329,7 @@ pub const SlideShow = struct {
                 .slide => {
                     if (slide.sections.items.len == 0 and !section_has_data) {
                         print("Line: {} | ", .{lexer.line});
-                        return SlidesParseError.ParserEmptySlide;
+                        return SlidesParseError.EmptySlide;
                     }
                     try self.newSlide(&slide, &section);
                     section_has_data = false;
@@ -362,7 +380,7 @@ pub const SlideShow = struct {
         // create the last slide
         if (slide.sections.items.len == 0 and !section_has_data) {
             print("Line: {} | ", .{lexer.line});
-            return SlidesParseError.ParserEmptySlide;
+            return SlidesParseError.EmptySlide;
         }
         try newSection(&slide, &section);
         try self.slides.append(slide);

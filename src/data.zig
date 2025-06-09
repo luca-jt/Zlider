@@ -29,7 +29,7 @@ pub const Color32 = struct {
     }
 
     pub fn fromHex(hex: []const u8) ?Color32 {
-        const number = std.fmt.parseInt(u32, hex, 16) catch return null;
+        const number = std.fmt.parseInt(u32, hex, 0) catch return null;
         const r: u8 = @intCast((number & 0xFF000000) >> 24);
         const g: u8 = @intCast((number & 0x00FF0000) >> 16);
         const b: u8 = @intCast((number & 0x0000FF00) >> 8);
