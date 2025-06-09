@@ -5,6 +5,10 @@ const win = @import("window.zig");
 const rendering = @import("rendering.zig");
 const state = @import("state.zig");
 
+pub const std_options: std.Options = .{
+    .log_level = .info,
+};
+
 pub fn main() !void {
     var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
     const allocator = alloc.allocator();

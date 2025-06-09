@@ -1,5 +1,5 @@
 const std = @import("std");
-const print = std.log.err;
+const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
