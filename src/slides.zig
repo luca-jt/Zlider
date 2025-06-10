@@ -27,6 +27,7 @@ pub const SlidesParseError = error {
 };
 
 const Lexer = struct {
+    file_dir: []const u8, // where the slide show file lives (canonical)
     line: usize = 1,
     buffer: String,
     input: []const u8,
@@ -35,8 +36,9 @@ const Lexer = struct {
 
     const Self = @This();
 
-    fn initWithInput(allocator: Allocator, input: []const u8) !Self {
+    fn initWithInput(allocator: Allocator, input: []const u8, file_dir: []const u8) !Self {
         return .{
+            .file_dir = file_dir,
             .buffer = try String.initCapacity(allocator, input.len), // the buffer is sure to only ever contain the entire input at most, so this enables us to minimize allocations
             .allocator = allocator,
             .input = input,
@@ -139,6 +141,7 @@ const Lexer = struct {
                     .text => blk: {
                         _ = self.readUntilNewLine();
                         var text = String.init(self.allocator);
+                        errdefer text.deinit();
                         var line = self.readUntilNewLine();
 
                         while (line.len != 0) {
@@ -171,13 +174,18 @@ const Lexer = struct {
                     },
                     .image => blk: {
                         const path_slice = try self.readNextWord();
-                        std.fs.cwd().access(path_slice, .{}) catch |err| {
-                            print("Line {}: '{s}' | ", .{self.line, path_slice});
+                        var full_image_path = String.init(self.allocator);
+                        errdefer full_image_path.deinit();
+                        try full_image_path.appendSlice(self.file_dir);
+                        try full_image_path.append('/'); // i think this should be fine on windows
+                        const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{path_slice});
+                        defer self.allocator.free(resolved_path);
+                        try full_image_path.appendSlice(resolved_path);
+                        std.fs.accessAbsolute(full_image_path.items, .{}) catch |err| {
+                            print("Line {}: '{s}' | ", .{self.line, full_image_path.items});
                             return err;
                         };
-                        var path = String.init(self.allocator);
-                        try path.appendSlice(path_slice);
-                        break :blk .{ .image = path };
+                        break :blk .{ .image = full_image_path };
                     },
                 };
                 break;
@@ -263,19 +271,12 @@ pub const SlideShow = struct {
     }
 
     fn loadedFileName(self: *Self) []const u8 {
-        const file_name = self.tracked_file.items;
-
-        var i = file_name.len;
-        const start = while (i > 0) {
-            i -= 1;
-            if (file_name[i] == '/') break i + 1;
-        } else 0;
-
-        return file_name[start..];
+        return std.fs.path.basename(self.tracked_file.items);
     }
 
     pub fn windowTitleAlloc(self: *Self) !String {
         var title = String.init(self.allocator);
+        errdefer title.deinit();
         try title.appendSlice(win.default_title);
         if (self.tracked_file.items.len != 0) {
             try title.appendSlice(" | ");
@@ -311,7 +312,6 @@ pub const SlideShow = struct {
             print("\nUnable to parse slide show file: {s}\n", .{file_path});
             return;
         };
-
         print("Successfully loaded slide show file: '{s}'.\n", .{file_path});
     }
 
@@ -326,10 +326,10 @@ pub const SlideShow = struct {
         const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
         defer self.allocator.free(full_file_path);
 
-        self.unloadSlides();
-        self.loadSlides(full_file_path);
         self.tracked_file.clearRetainingCapacity();
         try self.tracked_file.appendSlice(full_file_path);
+        self.unloadSlides();
+        self.loadSlides(full_file_path);
 
         const new_title = try self.windowTitleAlloc();
         defer new_title.deinit();
@@ -340,7 +340,7 @@ pub const SlideShow = struct {
         return if (self.slides.items.len == 0)
             null
         else
-            &(self.slides.items[self.slide_index]);
+            &self.slides.items[self.slide_index];
     }
 
     fn newSlide(self: *Self, slide: *Slide, section: *Section) !void {
@@ -352,7 +352,8 @@ pub const SlideShow = struct {
     }
 
     fn parseSlideShow(self: *Self, file_contents: *const String) !void {
-        var lexer = try Lexer.initWithInput(self.allocator, file_contents.items);
+        const slide_file_dir = std.fs.path.dirname(self.tracked_file.items).?; // the file path is always valid
+        var lexer = try Lexer.initWithInput(self.allocator, file_contents.items, slide_file_dir);
         defer lexer.deinit();
 
         var slide = Slide.init(self.allocator);
