@@ -15,7 +15,7 @@ pub fn main() !void {
     state.slide_show = try slides.SlideShow.init(allocator);
     defer state.slide_show.deinit();
 
-    const window = win.initWindow(800, 450, state.slide_show.titleSentinelSlice());
+    const window = win.initWindow(800, 450, win.default_title);
     defer win.closeWindow(window);
     win.setEventConfig(window);
 
@@ -23,7 +23,7 @@ pub fn main() !void {
     defer state.renderer.deinit();
 
     if (args.next()) |file_path| {
-        try state.slide_show.loadSlides(file_path, window);
+        try state.slide_show.loadNewSlides(file_path, window);
         state.renderer.loadSlideData(&state.slide_show);
 
         if (args.skip()) {

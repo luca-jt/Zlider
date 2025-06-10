@@ -1,5 +1,5 @@
 font option
-slide file hot reloading -> track file even if the parsing fails
+slide file hot reloading
 line spacing, line breaking, image scaling, slide side ratio, layers, colored areas on slides
 start screen render with no slides -> no black edges here
 use the text alignment in the secions

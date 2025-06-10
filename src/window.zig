@@ -8,6 +8,7 @@ const Allocator = std.mem.Allocator;
 const state = @import("state.zig");
 
 pub const viewport_ratio: f32 = 16.0 / 9.0;
+pub const default_title: [:0]const u8 = "Zlider";
 
 pub fn updateWindowAttributes(window: *c.GLFWwindow) void {
     c.glfwGetWindowPos(window, &state.window_state.win_pos_x, &state.window_state.win_pos_y);
@@ -84,7 +85,7 @@ fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const 
     const path: [:0]const u8 = std.mem.span(paths[0]); // assumed to be null-terminated
 
     state.renderer.clear();
-    state.slide_show.loadSlides(path, window) catch @panic("allocation error");
+    state.slide_show.loadNewSlides(path, window) catch @panic("allocation error");
     state.renderer.loadSlideData(&state.slide_show);
 }
 
@@ -176,10 +177,10 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
     }
     // unload the slides
     if (keyIsPressed(window, c.GLFW_KEY_C)) {
-        const file_was_present = try state.slide_show.unloadSlides();
+        const file_was_present = state.slide_show.unloadSlides();
         if (file_was_present) {
-            try state.slide_show.title.append(0); // null-termination is needed
-            c.glfwSetWindowTitle(window, state.slide_show.titleSentinelSlice());
+            state.slide_show.tracked_file.clearRetainingCapacity();
+            c.glfwSetWindowTitle(window, default_title);
             print("Unloaded slide show file.\n", .{});
         }
     }
@@ -196,7 +197,7 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
 
         var slide_file_name = String.init(allocator);
         defer slide_file_name.deinit();
-        try slide_file_name.appendSlice(state.slide_show.titleSlice());
+        try slide_file_name.appendSlice(state.slide_show.loadedFileNameNoExtension());
         try slide_file_name.appendSlice("_000.png");
         try slide_file_name.append(0);
 

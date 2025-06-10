@@ -5,6 +5,7 @@ pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
 const data = @import("data.zig");
 const c = @import("c.zig");
+const win = @import("window.zig");
 
 fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     const dir = std.fs.cwd();
@@ -222,20 +223,17 @@ pub const Slide = struct {
 pub const SlideShow = struct {
     slides: ArrayList(Slide),
     slide_index: usize = 0,
-    title: String, // this string always contains a null-terminated sequence of bytes due to the data source
+    tracked_file: String,
     allocator: Allocator,
 
     const Self = @This();
 
     pub fn init(allocator: Allocator) !Self {
-        var self = Self{
+        return .{
             .slides = ArrayList(Slide).init(allocator),
-            .title = String.init(allocator),
+            .tracked_file = String.init(allocator),
             .allocator = allocator,
         };
-        try self.title.appendSlice("Zlider");
-        try self.title.append(0); // null-termination is needed
-        return self;
     }
 
     pub fn deinit(self: Self) void {
@@ -249,19 +247,46 @@ pub const SlideShow = struct {
             slide.sections.deinit();
         }
         self.slides.deinit();
-        self.title.deinit();
+        self.tracked_file.deinit();
     }
 
-    pub fn titleSlice(self: *Self) []const u8 {
-        return self.title.items[0..self.title.items.len - 1];
+    pub fn loadedFileNameNoExtension(self: *Self) []const u8 {
+        const file_name = self.loadedFileName();
+
+        var i = file_name.len;
+        const end = while (i > 0) {
+            i -= 1;
+            if (file_name[i] == '.') break i;
+        } else file_name.len;
+
+        return file_name[0..end];
     }
 
-    pub fn titleSentinelSlice(self: *Self) [:0]const u8 {
-        return self.title.items[0..self.title.items.len - 1 :0];
+    fn loadedFileName(self: *Self) []const u8 {
+        const file_name = self.tracked_file.items;
+
+        var i = file_name.len;
+        const start = while (i > 0) {
+            i -= 1;
+            if (file_name[i] == '/') break i + 1;
+        } else 0;
+
+        return file_name[start..];
+    }
+
+    pub fn windowTitleAlloc(self: *Self) !String {
+        var title = String.init(self.allocator);
+        try title.appendSlice(win.default_title);
+        if (self.tracked_file.items.len != 0) {
+            try title.appendSlice(" | ");
+            try title.appendSlice(self.loadedFileName());
+        }
+        try title.append(0); // null-termination needed
+        return title;
     }
 
     /// returns wether or not slides were present
-    pub fn unloadSlides(self: *Self) !bool {
+    pub fn unloadSlides(self: *Self) bool {
         if (self.slides.items.len == 0) return false;
 
         for (self.slides.items) |*slide| {
@@ -274,36 +299,47 @@ pub const SlideShow = struct {
             slide.sections.deinit();
         }
         self.slides.clearRetainingCapacity();
-
-        self.title.clearRetainingCapacity();
-        try self.title.appendSlice("Zlider");
+        self.slide_index = 0;
 
         return true;
     }
 
-    pub fn loadSlides(self: *Self, file_path: [:0]const u8, window: ?*c.GLFWwindow) !void {
-        const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
-        defer self.allocator.free(full_file_path);
-
-        const file_contents = readEntireFile(full_file_path, self.allocator) catch |err| {
-            print("{s} | Unable to read file: {s}\n", .{@errorName(err), full_file_path});
-            return;
+    /// returns wether or not the loading was successful
+    fn loadSlides(self: *Self, file_path: []const u8) bool {
+        const file_contents = readEntireFile(file_path, self.allocator) catch |err| {
+            print("{s} | Unable to read file: {s}\n", .{@errorName(err), file_path});
+            return false;
         };
         defer file_contents.deinit();
 
         self.parseSlideShow(&file_contents) catch |e| {
             print("Error: {s}", .{@errorName(e)});
-            print("\nUnable to parse slide show file: {s}\n", .{full_file_path});
-            return;
+            print("\nUnable to parse slide show file: {s}\n", .{file_path});
+            return false;
         };
 
-        std.debug.assert(try self.unloadSlides()); // already resets the title
+        print("Successfully loaded slide show file: '{s}'.\n", .{file_path});
+        return true;
+    }
 
-        try self.title.appendSlice(" | ");
-        try self.title.appendSlice(full_file_path);
-        try self.title.append(0); // null-termination is needed
-        c.glfwSetWindowTitle(window, self.titleSentinelSlice());
-        print("Successfully loaded slide show file: '{s}'.\n", .{full_file_path});
+    /// called during hot reloading, returns wether or not the reload was successful
+    pub fn reloadSlides(self: *Self) bool {
+        std.debug.assert(self.unloadSlides()); // assumes a file to be tracked
+        return self.loadSlides(self.tracked_file.items);
+    }
+
+    pub fn loadNewSlides(self: *Self, file_path: [:0]const u8, window: ?*c.GLFWwindow) !void {
+        const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
+        defer self.allocator.free(full_file_path);
+
+        _ = self.unloadSlides();
+        _ = self.loadSlides(full_file_path);
+        self.tracked_file.clearRetainingCapacity();
+        try self.tracked_file.appendSlice(full_file_path);
+
+        const new_title = try self.windowTitleAlloc();
+        defer new_title.deinit();
+        c.glfwSetWindowTitle(window, @ptrCast(new_title.items));
     }
 
     pub fn currentSlide(self: *Self) ?*Slide {
