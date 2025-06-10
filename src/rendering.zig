@@ -118,6 +118,8 @@ const Vertex = extern struct {
     tex_idx: c.GLfloat,
 };
 
+const font_texture_swizzle_mask = [4:0]c.GLint{ c.GL_ONE, c.GL_ONE, c.GL_ONE, c.GL_RED };
+
 const FontStorage = extern struct {
     texture: c.GLuint = undefined,
     baked_chars: [data.glyph_count]c.stbtt_bakedchar = undefined,
@@ -134,10 +136,11 @@ const FontStorage = extern struct {
 
         c.glGenTextures(1, &self.texture);
         c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
-        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RED, @intCast(size), @intCast(size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, @ptrCast(buffer));
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_R8, @intCast(size), @intCast(size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, @ptrCast(buffer));
         c.glGenerateMipmap(c.GL_TEXTURE_2D);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST_MIPMAP_LINEAR);
+        c.glTexParameteriv(c.GL_TEXTURE_2D, c.GL_TEXTURE_SWIZZLE_RGBA, &font_texture_swizzle_mask);
 
         return self;
     }
@@ -380,9 +383,9 @@ pub const Renderer = struct {
                                 const uv_scale = lina.vec2(u_coord_1 - u_coord_0, v_coord_1 - v_coord_0);
                                 const uv_offset = lina.vec2(u_coord_0, v_coord_0);
 
-                                if (!try self.addTexQuad(trafo, tex_id, uv_scale, uv_offset)) {
+                                if (!try self.addFontQuad(trafo, tex_id, uv_scale, uv_offset, section.text_color)) {
                                     self.flush();
-                                    std.debug.assert(try self.addTexQuad(trafo, tex_id, uv_scale, uv_offset));
+                                    std.debug.assert(try self.addFontQuad(trafo, tex_id, uv_scale, uv_offset, section.text_color));
                                 }
                                 cursor_x += baked_char.xadvance;
                             },
@@ -396,9 +399,9 @@ pub const Renderer = struct {
                     const position = lina.vec3(x_pos, y_pos, 1.0); // the z coord might change in the future with support for layers
                     const trafo = lina.Mat4.translation(position).mul(scale);
                     const image_data = self.images.get(section.data.text.items).?;
-                    if (!try self.addTexQuad(trafo, image_data.texture, lina.Vec2.one, lina.Vec2.zero)) {
+                    if (!try self.addImageQuad(trafo, image_data.texture)) {
                         self.flush();
-                        std.debug.assert(try self.addTexQuad(trafo, image_data.texture, lina.Vec2.one, lina.Vec2.zero));
+                        std.debug.assert(try self.addImageQuad(trafo, image_data.texture));
                     }
                     cursor_y += yadvance;
                 },
@@ -452,7 +455,42 @@ pub const Renderer = struct {
         self.obj_buffer.clearRetainingCapacity();
     }
 
-    fn addTexQuad(self: *Self, trafo: lina.Mat4, tex_id: c.GLuint, uv_scale: lina.Vec2, uv_offset: lina.Vec2) !bool {
+    fn addFontQuad(self: *Self, trafo: lina.Mat4, tex_id: c.GLuint, uv_scale: lina.Vec2, uv_offset: lina.Vec2, color: data.Color32) !bool {
+        // determine texture index
+        var tex_idx: c.GLfloat = -1.0;
+        for (0..self.all_tex_ids.items.len) |i| {
+            const id = self.all_tex_ids.items[i];
+            if (id == tex_id) {
+                tex_idx = @floatFromInt(i + 1);
+                break;
+            }
+        }
+        if (tex_idx == -1.0) {
+            if (self.all_tex_ids.items.len >= max_texture_count - 1) {
+                // start a new batch if out of texture slots
+                return false;
+            }
+            tex_idx = @floatFromInt(self.all_tex_ids.items.len + 1);
+            self.all_tex_ids.appendAssumeCapacity(tex_id);
+        }
+        if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
+            // resize batch if size is exceeded
+            try self.resizeBuffer();
+        }
+        // copy mesh vertex data into the object buffer
+        for (0..data.plane_vertices.len) |i| {
+            self.obj_buffer.appendAssumeCapacity(.{
+                .position = data.plane_vertices[i].transform4(trafo),
+                .color = color.toVec4(),
+                .uv = data.plane_uvs[i].mul(uv_scale).add(uv_offset),
+                .tex_idx = tex_idx,
+            });
+        }
+        self.index_count += data.plane_indices.len;
+        return true;
+    }
+
+    fn addImageQuad(self: *Self, trafo: lina.Mat4, tex_id: c.GLuint) !bool {
         // determine texture index
         var tex_idx: c.GLfloat = -1.0;
         for (0..self.all_tex_ids.items.len) |i| {
@@ -479,7 +517,7 @@ pub const Renderer = struct {
             self.obj_buffer.appendAssumeCapacity(.{
                 .position = data.plane_vertices[i].transform4(trafo),
                 .color = lina.Vec4.fromElement(1.0),
-                .uv = data.plane_uvs[i].mul(uv_scale).add(uv_offset),
+                .uv = data.plane_uvs[i],
                 .tex_idx = tex_idx,
             });
         }

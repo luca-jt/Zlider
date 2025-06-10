@@ -38,7 +38,7 @@ pub const Color32 = struct {
     }
 };
 
-pub const clear_color = Color32.new(255, 255, 255, 255);
+pub const clear_color = Color32.new(44, 46, 52, 255);
 
 pub const Keyword = enum(usize) {
     text_color = 0,

@@ -2,6 +2,7 @@ const target_os = @import("builtin").target.os.tag;
 const c = @import("c.zig");
 const slide = @import("slides.zig");
 const std = @import("std");
+const print = std.debug.print;
 const String = std.ArrayList(u8);
 const Allocator = std.mem.Allocator;
 const state = @import("state.zig");
@@ -103,6 +104,7 @@ fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
         var up = false;
         var down = false;
         var i = false;
+        var c = false;
     };
 
     const event = c.glfwGetKey(window, key);
@@ -140,6 +142,11 @@ fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
             if (flip) KeyStates.down = !KeyStates.down;
             break :blk flip and pressed;
         },
+        c.GLFW_KEY_C => blk: {
+            const flip = pressed and !KeyStates.c or released and KeyStates.c;
+            if (flip) KeyStates.c = !KeyStates.c;
+            break :blk flip and pressed;
+        },
         else => false,
     };
 }
@@ -156,7 +163,7 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
             c.glfwSetWindowMonitor(window, null, state.window_state.win_pos_x, state.window_state.win_pos_y, state.window_state.win_size_x, state.window_state.win_size_y, c.GLFW_DONT_CARE);
         }
     }
-    // slide_show_switch
+    // slide show switch
     if (keyIsPressed(window, c.GLFW_KEY_RIGHT) or keyIsPressed(window, c.GLFW_KEY_DOWN)) {
         if (state.slide_show.slide_index < state.slide_show.slides.items.len - 1) {
             state.slide_show.slide_index += 1;
@@ -165,6 +172,15 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
     if (keyIsPressed(window, c.GLFW_KEY_LEFT) or keyIsPressed(window, c.GLFW_KEY_UP)) {
         if (state.slide_show.slide_index > 0) {
             state.slide_show.slide_index -= 1;
+        }
+    }
+    // unload the slides
+    if (keyIsPressed(window, c.GLFW_KEY_C)) {
+        const file_was_present = try state.slide_show.unloadSlides();
+        if (file_was_present) {
+            try state.slide_show.title.append(0); // null-termination is needed
+            c.glfwSetWindowTitle(window, state.slide_show.titleSentinelSlice());
+            print("Unloaded slide show file.\n", .{});
         }
     }
     // dump the slides to png
@@ -176,15 +192,15 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
         const slide_mem = try allocator.allocSentinel(u8, slide_mem_size, 0);
         defer allocator.free(slide_mem);
 
-        const compression_level = 5;
+        const compression_level = 1;
 
         var slide_file_name = String.init(allocator);
         defer slide_file_name.deinit();
         try slide_file_name.appendSlice(state.slide_show.titleSlice());
-        try slide_file_name.appendSlice("_000");
+        try slide_file_name.appendSlice("_000.png");
         try slide_file_name.append(0);
 
-        const number_slice = slide_file_name.items[slide_file_name.items.len-4..slide_file_name.items.len-1];
+        const number_slice = slide_file_name.items[slide_file_name.items.len-8..slide_file_name.items.len-5];
 
         while (state.slide_show.slide_index < state.slide_show.slides.items.len) {
             const slide_number = state.slide_show.slide_index + 1;
@@ -192,8 +208,8 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
 
             try state.renderer.render(&state.slide_show);
             copyFrameBufferToMemory(slide_mem);
-
             _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window_state.vp_size_x, state.window_state.vp_size_y, compression_level, @ptrCast(slide_mem), 4);
+            print("Dumped slide {} to file '{s}'.\n", .{slide_number, slide_file_name.items[0..slide_file_name.items.len-1]});
             state.slide_show.slide_index += 1;
         }
 

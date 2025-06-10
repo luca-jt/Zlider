@@ -18,6 +18,7 @@ This is a test slide that displays centered text and an image.
 text
 
 // all the formatting parameters can be re-defined multiple times per slide
+// every time you declare some content to be inserted (like text or images) the formatting previously defined is used
 
 // insert line spacings
 space 2

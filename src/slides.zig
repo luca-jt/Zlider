@@ -260,15 +260,9 @@ pub const SlideShow = struct {
         return self.title.items[0..self.title.items.len - 1 :0];
     }
 
-    pub fn loadSlides(self: *Self, file_path: [:0]const u8, window: ?*c.GLFWwindow) !void {
-        const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
-        defer self.allocator.free(full_file_path);
-
-        const file_contents = readEntireFile(full_file_path, self.allocator) catch |err| {
-            print("{s} | Unable to read file: {s}\n", .{@errorName(err), full_file_path});
-            return;
-        };
-        defer file_contents.deinit();
+    /// returns wether or not slides were present
+    pub fn unloadSlides(self: *Self) !bool {
+        if (self.slides.items.len == 0) return false;
 
         for (self.slides.items) |*slide| {
             for (slide.sections.items) |section| {
@@ -281,17 +275,35 @@ pub const SlideShow = struct {
         }
         self.slides.clearRetainingCapacity();
 
+        self.title.clearRetainingCapacity();
+        try self.title.appendSlice("Zlider");
+
+        return true;
+    }
+
+    pub fn loadSlides(self: *Self, file_path: [:0]const u8, window: ?*c.GLFWwindow) !void {
+        const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
+        defer self.allocator.free(full_file_path);
+
+        const file_contents = readEntireFile(full_file_path, self.allocator) catch |err| {
+            print("{s} | Unable to read file: {s}\n", .{@errorName(err), full_file_path});
+            return;
+        };
+        defer file_contents.deinit();
+
         self.parseSlideShow(&file_contents) catch |e| {
-            print("{s}", .{@errorName(e)});
+            print("Error: {s}", .{@errorName(e)});
             print("\nUnable to parse slide show file: {s}\n", .{full_file_path});
             return;
         };
 
-        self.title.clearRetainingCapacity();
-        try self.title.appendSlice("Zlider | ");
+        std.debug.assert(try self.unloadSlides()); // already resets the title
+
+        try self.title.appendSlice(" | ");
         try self.title.appendSlice(full_file_path);
         try self.title.append(0); // null-termination is needed
         c.glfwSetWindowTitle(window, self.titleSentinelSlice());
+        print("Successfully loaded slide show file: '{s}'.\n", .{full_file_path});
     }
 
     pub fn currentSlide(self: *Self) ?*Slide {
