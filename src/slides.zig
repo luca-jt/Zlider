@@ -285,10 +285,7 @@ pub const SlideShow = struct {
         return title;
     }
 
-    /// returns wether or not slides were present
-    pub fn unloadSlides(self: *Self) bool {
-        if (self.slides.items.len == 0) return false;
-
+    pub fn unloadSlides(self: *Self) void {
         for (self.slides.items) |*slide| {
             for (slide.sections.items) |section| {
                 switch (section.section_type) {
@@ -300,40 +297,37 @@ pub const SlideShow = struct {
         }
         self.slides.clearRetainingCapacity();
         self.slide_index = 0;
-
-        return true;
     }
 
-    /// returns wether or not the loading was successful
-    fn loadSlides(self: *Self, file_path: []const u8) bool {
+    fn loadSlides(self: *Self, file_path: []const u8) void {
         const file_contents = readEntireFile(file_path, self.allocator) catch |err| {
             print("{s} | Unable to read file: {s}\n", .{@errorName(err), file_path});
-            return false;
+            return;
         };
         defer file_contents.deinit();
 
         self.parseSlideShow(&file_contents) catch |e| {
             print("Error: {s}", .{@errorName(e)});
             print("\nUnable to parse slide show file: {s}\n", .{file_path});
-            return false;
+            return;
         };
 
         print("Successfully loaded slide show file: '{s}'.\n", .{file_path});
-        return true;
     }
 
-    /// called during hot reloading, returns wether or not the reload was successful
-    pub fn reloadSlides(self: *Self) bool {
-        std.debug.assert(self.unloadSlides()); // assumes a file to be tracked
-        return self.loadSlides(self.tracked_file.items);
+    /// called during hot reloading
+    pub fn reloadSlides(self: *Self) void {
+        std.debug.assert(self.slides.items.len > 0 and self.tracked_file.items.len > 0); // assumes slides to be tracked
+        self.unloadSlides();
+        self.loadSlides(self.tracked_file.items);
     }
 
     pub fn loadNewSlides(self: *Self, file_path: [:0]const u8, window: ?*c.GLFWwindow) !void {
         const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
         defer self.allocator.free(full_file_path);
 
-        _ = self.unloadSlides();
-        _ = self.loadSlides(full_file_path);
+        self.unloadSlides();
+        self.loadSlides(full_file_path);
         self.tracked_file.clearRetainingCapacity();
         try self.tracked_file.appendSlice(full_file_path);
 

@@ -177,8 +177,9 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
     }
     // unload the slides
     if (keyIsPressed(window, c.GLFW_KEY_C)) {
-        const file_was_present = state.slide_show.unloadSlides();
-        if (file_was_present) {
+        state.slide_show.unloadSlides();
+        const file_was_tracked = state.slide_show.tracked_file.items.len > 0;
+        if (file_was_tracked) {
             state.slide_show.tracked_file.clearRetainingCapacity();
             c.glfwSetWindowTitle(window, default_title);
             print("Unloaded slide show file.\n", .{});
