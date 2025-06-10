@@ -175,17 +175,18 @@ const Lexer = struct {
                     .image => blk: {
                         const path_slice = try self.readNextWord();
                         var full_image_path = String.init(self.allocator);
-                        errdefer full_image_path.deinit();
+                        defer full_image_path.deinit();
                         try full_image_path.appendSlice(self.file_dir);
                         try full_image_path.append('/'); // i think this should be fine on windows
-                        const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{path_slice});
-                        defer self.allocator.free(resolved_path);
-                        try full_image_path.appendSlice(resolved_path);
-                        std.fs.accessAbsolute(full_image_path.items, .{}) catch |err| {
-                            print("Line {}: '{s}' | ", .{self.line, full_image_path.items});
+                        try full_image_path.appendSlice(path_slice);
+                        const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{full_image_path.items});
+                        const resolved_path_owned = String.fromOwnedSlice(self.allocator, resolved_path);
+                        errdefer resolved_path_owned.deinit();
+                        std.fs.accessAbsolute(resolved_path_owned.items, .{}) catch |err| {
+                            print("Line {}: '{s}' | ", .{self.line, resolved_path_owned.items});
                             return err;
                         };
-                        break :blk .{ .image = full_image_path };
+                        break :blk .{ .image = resolved_path_owned };
                     },
                 };
                 break;
@@ -352,6 +353,8 @@ pub const SlideShow = struct {
     }
 
     fn parseSlideShow(self: *Self, file_contents: *const String) !void {
+        errdefer self.unloadSlides();
+
         const slide_file_dir = std.fs.path.dirname(self.tracked_file.items).?; // the file path is always valid
         var lexer = try Lexer.initWithInput(self.allocator, file_contents.items, slide_file_dir);
         defer lexer.deinit();
