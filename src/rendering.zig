@@ -347,7 +347,6 @@ pub const Renderer = struct {
             const used_font_size_index = fontSizeIndex(section.text_size);
             const used_font_size = baked_font_sizes[used_font_size_index];
             const window_scale_factor = @as(f32, @floatFromInt(used_font_size)) / @as(f32, @floatFromInt(data.viewport_resolution_reference[1]));
-            const scale = lina.Mat4.scaleFromFactor(window_scale_factor);
             const font_scale = @as(f32, @floatFromInt(used_font_size)) / @as(f32, @floatFromInt(self.font_data.ascent - self.font_data.descent));
 
             switch (section.section_type) {
@@ -372,7 +371,8 @@ pub const Renderer = struct {
                             else => {
                                 const x_pos = cursor_x + baked_char.xoff + @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / 2.0;
                                 const y_pos = cursor_y + baked_char.yoff + @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)) / 2.0;
-                                const position = lina.vec3(x_pos * font_scale, y_pos * font_scale, 1.0); // the z coord might change in the future with support for layers
+                                const position = lina.vec3(x_pos * font_scale * window_scale_factor, y_pos * font_scale * window_scale_factor, 1.0); // the z coord might change in the future with support for layers
+                                const scale = lina.Mat4.scaleFromFactor(window_scale_factor);
                                 const trafo = lina.Mat4.translation(position).mul(scale);
 
                                 const font_texture_side_pixel_size: f32 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
@@ -394,10 +394,10 @@ pub const Renderer = struct {
                     cursor_y += yadvance;
                 },
                 .image => {
-                    const x_pos = cursor_x * font_scale;
-                    const y_pos = cursor_y * font_scale;
+                    const x_pos = cursor_x * font_scale * window_scale_factor;
+                    const y_pos = cursor_y * font_scale * window_scale_factor;
                     const position = lina.vec3(x_pos, y_pos, 1.0); // the z coord might change in the future with support for layers
-                    const trafo = lina.Mat4.translation(position).mul(scale);
+                    const trafo = lina.Mat4.translation(position);
                     const image_data = self.images.get(section.data.text.items).?;
                     if (!try self.addImageQuad(trafo, image_data.texture)) {
                         self.flush();

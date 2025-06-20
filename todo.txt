@@ -3,3 +3,4 @@ slide file hot reloading
 line spacing, line breaking, image scaling, slide side ratio, layers, colored areas on slides
 start screen render with no slides -> no black edges here
 use the text alignment in the secions
+the quad scaling for the text needs to fit the characters
