@@ -6,8 +6,7 @@ const rendering = @import("rendering.zig");
 const state = @import("state.zig");
 
 pub fn main() !void {
-    var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-    const allocator = alloc.allocator();
+    const allocator = std.heap.c_allocator;
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
     std.debug.assert(args.skip()); // skip the program name

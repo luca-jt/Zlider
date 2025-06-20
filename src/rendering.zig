@@ -25,9 +25,9 @@ fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetShaderiv(shader, c.GL_INFO_LOG_LENGTH, &len);
-        var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
-        defer std.heap.page_allcator.free(buf);
+        const allocator = std.heap.c_allocator;
+        const buf = allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
+        defer allocator.free(buf);
         c.glGetShaderInfoLog(shader, len, null, buf);
         @panic(buf);
     }
@@ -51,9 +51,9 @@ fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetProgramiv(program, c.GL_INFO_LOG_LENGTH, &len);
-        var alloc = std.heap.GeneralPurposeAllocator(.{}).init;
-        const buf = alloc.allocator().allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
-        defer std.heap.page_allcator.free(buf);
+        const allocator = std.heap.c_allocator;
+        const buf = allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
+        defer allocator.free(buf);
         c.glGetProgramInfoLog(program, len, null, buf);
         @panic(buf);
     }

@@ -38,6 +38,8 @@ bg 0x000000FF
 // default text size is 12
 // settings from previous slides will be kept
 
+right
+
 text
 This is a second test slide with text and an image.
 text

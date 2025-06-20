@@ -17,7 +17,6 @@ fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
 }
 
 pub const SlidesParseError = error {
-    LexerNoKeywordValue,
     LexerNoClosingKeyword,
     LexerUnknownKeyword,
     LexerInvalidToken,
@@ -76,16 +75,12 @@ const Lexer = struct {
         self.ptr += 1;
     }
 
-    fn readNextWord(self: *Self) SlidesParseError![]const u8 {
+    fn readNextWord(self: *Self) []const u8 {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
 
         while (self.head() != 0 and self.head() != ' ' and self.head() != '\t' and self.head() != '\n') {
             self.readChar();
-        }
-        if (self.buffer.items.len == 0) {
-            print("Line: {} | ", .{self.line});
-            return SlidesParseError.LexerNoKeywordValue;
         }
         return self.buffer.items;
     }
@@ -110,12 +105,13 @@ const Lexer = struct {
         self.skipWhiteSpace();
 
         while (self.head() != 0) {
-            const next_word = try self.readNextWord();
+            const next_word = self.readNextWord();
+            if (next_word.len == 0) break;
 
             if (self.containedKeyword()) |keyword| {
                 token = switch (keyword) {
                     .text_color => blk: {
-                        const color_string = try self.readNextWord();
+                        const color_string = self.readNextWord();
                         const parsed_color = data.Color32.fromHex(color_string);
                         if (parsed_color) |color| {
                             break :blk .{ .text_color = color };
@@ -125,7 +121,7 @@ const Lexer = struct {
                         }
                     },
                     .bg => blk: {
-                        const color_string = try self.readNextWord();
+                        const color_string = self.readNextWord();
                         const parsed_color = data.Color32.fromHex(color_string);
                         if (parsed_color) |color| {
                             break :blk .{ .bg = color };
@@ -157,7 +153,7 @@ const Lexer = struct {
                         break :blk .{ .text = text };
                     },
                     .space => blk: {
-                        const int_string = try self.readNextWord();
+                        const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
                             print("Line {}: '{s}' | ", .{self.line, int_string});
                             return SlidesParseError.LexerInvalidToken;
@@ -165,7 +161,7 @@ const Lexer = struct {
                         break :blk .{ .space = parsed_int };
                     },
                     .text_size => blk: {
-                        const int_string = try self.readNextWord();
+                        const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
                             print("Line {}: '{s}' | ", .{self.line, int_string});
                             return SlidesParseError.LexerInvalidToken;
@@ -173,7 +169,7 @@ const Lexer = struct {
                         break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
-                        const path_slice = try self.readNextWord();
+                        const path_slice = self.readNextWord();
                         var full_image_path = String.init(self.allocator);
                         defer full_image_path.deinit();
                         try full_image_path.appendSlice(self.file_dir);
@@ -390,7 +386,7 @@ pub const SlideShow = struct {
                     section.alignment = .right;
                 },
                 .text => |string| {
-                    if (self.slides.items.len != 0 or slide.sections.items.len != 0) {
+                    if (slide.sections.items.len != 0) {
                         // skip the first section append
                         try newSection(&slide, &section);
                     }
@@ -399,7 +395,7 @@ pub const SlideShow = struct {
                     section_has_data = true;
                 },
                 .space => |number| {
-                    if (self.slides.items.len != 0 or slide.sections.items.len != 0) {
+                    if (slide.sections.items.len != 0) {
                         // skip the first section append
                         try newSection(&slide, &section);
                     }
@@ -411,7 +407,7 @@ pub const SlideShow = struct {
                     section.text_size = number;
                 },
                 .image => |path| {
-                    if (self.slides.items.len != 0 or slide.sections.items.len != 0) {
+                    if (slide.sections.items.len != 0) {
                         // skip the first section append
                         try newSection(&slide, &section);
                     }
@@ -428,6 +424,7 @@ pub const SlideShow = struct {
             print("Line: {} | ", .{lexer.line});
             return SlidesParseError.EmptySlide;
         }
+        std.debug.assert(section_has_data);
         try newSection(&slide, &section);
         try self.slides.append(slide);
         section_has_data = false;
