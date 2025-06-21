@@ -295,7 +295,7 @@ pub const Renderer = struct {
 
         var iterator = self.images.valueIterator();
         while (iterator.next()) |image_data| {
-            c.glDeleteTextures(1, image_data.texture);
+            c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.deinit();
         self.font_data.deinit();
@@ -305,7 +305,7 @@ pub const Renderer = struct {
         self.obj_buffer.clearRetainingCapacity();
         var iterator = self.images.valueIterator();
         while (iterator.next()) |image_data| {
-            c.glDeleteTextures(1, image_data.texture);
+            c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.clearRetainingCapacity();
     }

@@ -178,6 +178,7 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
     // unload the slides
     if (keyIsPressed(window, c.GLFW_KEY_C)) {
         state.slide_show.unloadSlides();
+        state.renderer.clear();
         const file_was_tracked = state.slide_show.tracked_file.items.len > 0;
         if (file_was_tracked) {
             state.slide_show.tracked_file.clearRetainingCapacity();

@@ -16,7 +16,7 @@ fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     return string;
 }
 
-pub const SlidesParseError = error {
+pub const SlidesParseError = error{
     LexerNoClosingKeyword,
     LexerUnknownKeyword,
     LexerInvalidToken,
@@ -116,7 +116,7 @@ const Lexer = struct {
                         if (parsed_color) |color| {
                             break :blk .{ .text_color = color };
                         } else {
-                            print("Line {}: '{s}' | ", .{self.line, color_string});
+                            print("Line {}: '{s}' | ", .{ self.line, color_string });
                             return SlidesParseError.LexerInvalidToken;
                         }
                     },
@@ -126,7 +126,7 @@ const Lexer = struct {
                         if (parsed_color) |color| {
                             break :blk .{ .bg = color };
                         } else {
-                            print("Line {}: '{s}' | ", .{self.line, color_string});
+                            print("Line {}: '{s}' | ", .{ self.line, color_string });
                             return SlidesParseError.LexerInvalidToken;
                         }
                     },
@@ -155,7 +155,7 @@ const Lexer = struct {
                     .space => blk: {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            print("Line {}: '{s}' | ", .{self.line, int_string});
+                            print("Line {}: '{s}' | ", .{ self.line, int_string });
                             return SlidesParseError.LexerInvalidToken;
                         };
                         break :blk .{ .space = parsed_int };
@@ -163,7 +163,7 @@ const Lexer = struct {
                     .text_size => blk: {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            print("Line {}: '{s}' | ", .{self.line, int_string});
+                            print("Line {}: '{s}' | ", .{ self.line, int_string });
                             return SlidesParseError.LexerInvalidToken;
                         };
                         break :blk .{ .text_size = parsed_int };
@@ -179,7 +179,7 @@ const Lexer = struct {
                         const resolved_path_owned = String.fromOwnedSlice(self.allocator, resolved_path);
                         errdefer resolved_path_owned.deinit();
                         std.fs.accessAbsolute(resolved_path_owned.items, .{}) catch |err| {
-                            print("Line {}: '{s}' | ", .{self.line, resolved_path_owned.items});
+                            print("Line {}: '{s}' | ", .{ self.line, resolved_path_owned.items });
                             return err;
                         };
                         break :blk .{ .image = resolved_path_owned };
@@ -189,7 +189,7 @@ const Lexer = struct {
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
                 _ = self.readUntilNewLine();
             } else {
-                print("Line {}: '{s}' | ", .{self.line, next_word});
+                print("Line {}: '{s}' | ", .{ self.line, next_word });
                 return SlidesParseError.LexerUnknownKeyword;
             }
         }
@@ -299,7 +299,7 @@ pub const SlideShow = struct {
 
     fn loadSlides(self: *Self, file_path: []const u8) void {
         const file_contents = readEntireFile(file_path, self.allocator) catch |err| {
-            print("{s} | Unable to read file: {s}\n", .{@errorName(err), file_path});
+            print("{s} | Unable to read file: {s}\n", .{ @errorName(err), file_path });
             return;
         };
         defer file_contents.deinit();
@@ -356,9 +356,10 @@ pub const SlideShow = struct {
         defer lexer.deinit();
 
         var slide = Slide.init(self.allocator);
-        defer slide.sections.deinit();
+        errdefer slide.sections.deinit();
         var section = Section{ .section_type = undefined, .data = undefined };
         var section_has_data = false;
+        errdefer if (section_has_data and section.section_type != .space) section.data.text.deinit();
 
         while (try lexer.nextToken()) |token| {
             switch (token) {
@@ -386,7 +387,7 @@ pub const SlideShow = struct {
                     section.alignment = .right;
                 },
                 .text => |string| {
-                    if (slide.sections.items.len != 0) {
+                    if (section_has_data) {
                         // skip the first section append
                         try newSection(&slide, &section);
                     }
@@ -395,7 +396,7 @@ pub const SlideShow = struct {
                     section_has_data = true;
                 },
                 .space => |number| {
-                    if (slide.sections.items.len != 0) {
+                    if (section_has_data) {
                         // skip the first section append
                         try newSection(&slide, &section);
                     }
@@ -407,7 +408,7 @@ pub const SlideShow = struct {
                     section.text_size = number;
                 },
                 .image => |path| {
-                    if (slide.sections.items.len != 0) {
+                    if (section_has_data) {
                         // skip the first section append
                         try newSection(&slide, &section);
                     }
