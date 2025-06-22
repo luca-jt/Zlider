@@ -235,7 +235,7 @@ pub const Renderer = struct {
         var self = Self{
             .shader = createShader(data.vertex_shader, data.fragment_shader),
             .white_texture = generateWhiteTexture(),
-            .obj_buffer = try ArrayList(Vertex).initCapacity(allocator, max_num_meshes),
+            .obj_buffer = try ArrayList(Vertex).initCapacity(allocator, max_num_meshes * data.plane_vertices.len),
             .all_tex_ids = try ArrayList(c.GLuint).initCapacity(allocator, max_texture_count - 1),
             .max_num_meshes = max_num_meshes,
             .images = StringHashMap(ImageData).init(allocator),
@@ -338,50 +338,51 @@ pub const Renderer = struct {
         const slide = current_slide.?;
         clearScreen(slide.background_color);
 
-        const line_spacing: f32 = 2.0; // will be set in the slide files in the future
-        const yadvance: f32 = @as(f32, @floatFromInt(self.font_data.ascent - self.font_data.descent + self.font_data.line_gap)) + line_spacing; // in font units (corresponds to the xadvance in font data)
-        var cursor_x: f32 = 0; // x position in font units
-        var cursor_y: f32 = 0; // y baseline position in font units
+        const line_spacing: f64 = 2.0; // will be set in the slide files in the future
+        const yadvance: f64 = -(@as(f64, @floatFromInt(self.font_data.ascent - self.font_data.descent + self.font_data.line_gap)) + line_spacing); // in font units (corresponds to the xadvance in font data)
+        var cursor_x: f64 = 0; // x position in font units
+        var cursor_y: f64 = 0; // y baseline position in font units
 
         for (slide.sections.items) |*section| {
             const used_font_size_index = fontSizeIndex(section.text_size);
             const used_font_size = baked_font_sizes[used_font_size_index];
-            const window_scale_factor = @as(f32, @floatFromInt(used_font_size)) / @as(f32, @floatFromInt(data.viewport_resolution_reference[1]));
-            const font_scale = @as(f32, @floatFromInt(used_font_size)) / @as(f32, @floatFromInt(self.font_data.ascent - self.font_data.descent));
+            const window_scale_factor = @as(f64, @floatFromInt(used_font_size)) / @as(f64, @floatFromInt(data.viewport_resolution_reference[1]));
+            const font_scale = @as(f64, @floatFromInt(used_font_size)) / @as(f64, @floatFromInt(self.font_data.ascent - self.font_data.descent));
 
             switch (section.section_type) {
                 .space => {
-                    cursor_y += yadvance * @as(f32, @floatFromInt(section.data.lines));
+                    cursor_y += yadvance * @as(f64, @floatFromInt(section.data.lines));
                 },
                 .text => {
                     const font_storage = self.font_data.baked_fonts[used_font_size_index];
                     const tex_id: c.GLuint = font_storage.texture;
 
                     for (section.data.text.items) |char| {
-                        const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
-
                         switch (char) {
                             '\n' => {
                                 cursor_y += yadvance;
                                 cursor_x = 0;
                             },
                             ' ' => {
+                                const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
                                 cursor_x += baked_char.xadvance;
                             },
                             else => {
-                                const x_pos = cursor_x + baked_char.xoff + @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / 2.0;
-                                const y_pos = cursor_y + baked_char.yoff + @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)) / 2.0;
-                                const position = lina.vec3(x_pos * font_scale * window_scale_factor, y_pos * font_scale * window_scale_factor, 1.0); // the z coord might change in the future with support for layers
-                                const scale = lina.Mat4.scaleFromFactor(window_scale_factor);
+                                const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
+
+                                const x_pos = (cursor_x + baked_char.xoff + @as(f64, @floatFromInt(baked_char.x1 - baked_char.x0)) / 2.0) * font_scale * window_scale_factor;
+                                const y_pos = (cursor_y + baked_char.yoff + @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) / 2.0) * font_scale * window_scale_factor;
+                                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 1.0); // the z coord might change in the future with support for layers
+                                const scale = lina.Mat4.scaleFromFactor(@floatCast(window_scale_factor));
                                 const trafo = lina.Mat4.translation(position).mul(scale);
 
-                                const font_texture_side_pixel_size: f32 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
-                                const u_coord_0 = @as(f32, @floatFromInt(baked_char.x0)) * font_scale / font_texture_side_pixel_size;
-                                const v_coord_0 = @as(f32, @floatFromInt(baked_char.y0)) * font_scale / font_texture_side_pixel_size;
-                                const u_coord_1 = @as(f32, @floatFromInt(baked_char.x1)) * font_scale / font_texture_side_pixel_size;
-                                const v_coord_1 = @as(f32, @floatFromInt(baked_char.y1)) * font_scale / font_texture_side_pixel_size;
-                                const uv_scale = lina.vec2(u_coord_1 - u_coord_0, v_coord_1 - v_coord_0);
-                                const uv_offset = lina.vec2(u_coord_0, v_coord_0);
+                                const font_texture_side_pixel_size: f64 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
+                                const u_coord_0 = @as(f64, @floatFromInt(baked_char.x0)) * font_scale / font_texture_side_pixel_size;
+                                const v_coord_0 = @as(f64, @floatFromInt(baked_char.y0)) * font_scale / font_texture_side_pixel_size;
+                                const u_coord_1 = @as(f64, @floatFromInt(baked_char.x1)) * font_scale / font_texture_side_pixel_size;
+                                const v_coord_1 = @as(f64, @floatFromInt(baked_char.y1)) * font_scale / font_texture_side_pixel_size;
+                                const uv_scale = lina.vec2(@floatCast(u_coord_1 - u_coord_0), @floatCast(v_coord_1 - v_coord_0));
+                                const uv_offset = lina.vec2(@floatCast(u_coord_0), @floatCast(v_coord_0));
 
                                 if (!try self.addFontQuad(trafo, tex_id, uv_scale, uv_offset, section.text_color)) {
                                     self.flush();
@@ -396,7 +397,7 @@ pub const Renderer = struct {
                 .image => {
                     const x_pos = cursor_x * font_scale * window_scale_factor;
                     const y_pos = cursor_y * font_scale * window_scale_factor;
-                    const position = lina.vec3(x_pos, y_pos, 1.0); // the z coord might change in the future with support for layers
+                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 1.0); // the z coord might change in the future with support for layers
                     const trafo = lina.Mat4.translation(position);
                     const image_data = self.images.get(section.data.text.items).?;
                     if (!try self.addImageQuad(trafo, image_data.texture)) {

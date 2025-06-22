@@ -135,7 +135,6 @@ const Lexer = struct {
                     .left => .left,
                     .right => .right,
                     .text => blk: {
-                        _ = self.readUntilNewLine();
                         var text = String.init(self.allocator);
                         errdefer text.deinit();
                         var line = self.readUntilNewLine();
