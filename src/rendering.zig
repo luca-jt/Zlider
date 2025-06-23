@@ -336,20 +336,21 @@ pub const Renderer = struct {
         const slide = current_slide.?;
         clearScreen(slide.background_color);
 
-        const line_spacing: f64 = 2.0; // will be set in the slide files in the future
-        const yadvance: f64 = -(@as(f64, @floatFromInt(self.font_data.ascent - self.font_data.descent + self.font_data.line_gap)) + line_spacing); // in font units (corresponds to the xadvance in font data)
-        var cursor_x: f64 = 0; // x position in font units
-        var cursor_y: f64 = 0; // y baseline position in font units
+        const line_spacing: f64 = 1.2; // will be set in the slide files in the future
+        const line_height: f64 = @floatFromInt(self.font_data.ascent - self.font_data.descent + self.font_data.line_gap);
+        const yadvance_font: f64 = -line_height * line_spacing; // in font units (analogous to the xadvance in font data but generic)
+        var cursor_x: f64 = 0; // x position in pixel units
+        var cursor_y: f64 = 0; // y baseline position in pixel units
 
         for (slide.sections.items) |*section| {
             const used_font_size_index = fontSizeIndex(section.text_size);
-            const used_font_size = baked_font_sizes[used_font_size_index];
-            const pixel_to_window_scale = 1.0 / @as(f64, @floatFromInt(data.viewport_resolution_reference[1])); // y-axis as scale reference
-            const font_scale = @as(f64, @floatFromInt(used_font_size)) / @as(f64, @floatFromInt(self.font_data.ascent - self.font_data.descent));
+            const used_font_size: f64 = @floatFromInt(baked_font_sizes[used_font_size_index]);
+            const inverse_viewport_height = 1.0 / @as(f64, @floatFromInt(data.viewport_resolution_reference[1])); // y-axis as scale reference
+            const font_scale = used_font_size / @as(f64, @floatFromInt(self.font_data.ascent - self.font_data.descent));
 
             switch (section.section_type) {
                 .space => {
-                    cursor_y += yadvance * @as(f64, @floatFromInt(section.data.lines));
+                    cursor_y += yadvance_font * @as(f64, @floatFromInt(section.data.lines)) * font_scale;
                 },
                 .text => {
                     const font_storage = self.font_data.baked_fonts[used_font_size_index];
@@ -358,7 +359,7 @@ pub const Renderer = struct {
                     for (section.data.text.items) |char| {
                         switch (char) {
                             '\n' => {
-                                cursor_y += yadvance;
+                                cursor_y += yadvance_font * font_scale;
                                 cursor_x = 0;
                             },
                             ' ' => {
@@ -368,19 +369,19 @@ pub const Renderer = struct {
                             else => {
                                 const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
 
-                                const x_pos = (cursor_x + baked_char.xoff) * font_scale * pixel_to_window_scale;
-                                const y_pos = (cursor_y + baked_char.yoff) * font_scale * pixel_to_window_scale;
+                                const x_pos = (cursor_x + baked_char.xoff) * inverse_viewport_height;
+                                const y_pos = (cursor_y + baked_char.yoff) * inverse_viewport_height;
                                 const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
                                 const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
-                                const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(pixel_to_window_scale * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_scale));
+                                const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0))));
                                 const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
 
                                 const font_texture_side_pixel_size: f64 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
-                                const u_coord_0 = @as(f64, @floatFromInt(baked_char.x0)) * font_scale / font_texture_side_pixel_size;
-                                const v_coord_0 = @as(f64, @floatFromInt(baked_char.y0)) * font_scale / font_texture_side_pixel_size;
-                                const u_coord_1 = @as(f64, @floatFromInt(baked_char.x1)) * font_scale / font_texture_side_pixel_size;
-                                const v_coord_1 = @as(f64, @floatFromInt(baked_char.y1)) * font_scale / font_texture_side_pixel_size;
+                                const u_coord_0 = @as(f64, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
+                                const v_coord_0 = @as(f64, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
+                                const u_coord_1 = @as(f64, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
+                                const v_coord_1 = @as(f64, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
                                 const uv_scale = lina.vec2(@floatCast(u_coord_1 - u_coord_0), @floatCast(v_coord_1 - v_coord_0));
                                 const uv_offset = lina.vec2(@floatCast(u_coord_0), @floatCast(v_coord_0));
 
@@ -392,23 +393,24 @@ pub const Renderer = struct {
                             },
                         }
                     }
-                    cursor_y += yadvance;
+                    cursor_y += yadvance_font * font_scale;
                 },
                 .image => {
-                    const x_pos = cursor_x * font_scale * pixel_to_window_scale;
-                    const y_pos = cursor_y * font_scale * pixel_to_window_scale;
+                    const x_pos = cursor_x * inverse_viewport_height;
+                    const y_pos = cursor_y * inverse_viewport_height;
                     const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
                     const image_data = self.images.get(section.data.text.items).?;
-                    const scale = lina.Mat4.scale(.{ .x = @as(f32 ,@floatFromInt(image_data.width)) / @as(f32, @floatFromInt(image_data.height)), .y = 1.0, .z = 1.0, });
-                    const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(pixel_to_window_scale)) * @as(f32, @floatFromInt(image_data.height)));
+                    const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(image_data.width)) / @as(f32, @floatFromInt(image_data.height)), .y = 1.0, .z = 1.0, });
+                    const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * @as(f32, @floatFromInt(image_data.height)));
                     const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
 
                     if (!try self.addImageQuad(trafo, image_data.texture)) {
                         self.flush();
                         std.debug.assert(try self.addImageQuad(trafo, image_data.texture));
                     }
-                    cursor_y += yadvance;
+                    cursor_y -= @as(f64, @floatFromInt(image_data.height));
+                    cursor_y += yadvance_font * font_scale;
                 },
             }
             cursor_x = 0;
