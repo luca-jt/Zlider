@@ -166,7 +166,7 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
     }
     // slide show switch
     if (keyIsPressed(window, c.GLFW_KEY_RIGHT) or keyIsPressed(window, c.GLFW_KEY_DOWN)) {
-        if (state.slide_show.slide_index < state.slide_show.slides.items.len - 1) {
+        if (state.slide_show.slide_index + 1 < state.slide_show.slides.items.len) {
             state.slide_show.slide_index += 1;
         }
     }

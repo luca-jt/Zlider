@@ -83,9 +83,8 @@ fn generateTexture(mem: [*:0]const u8, width: c.GLint, height: c.GLint) c.GLuint
         c.GL_UNSIGNED_BYTE,
         mem
     );
-    c.glGenerateMipmap(c.GL_TEXTURE_2D);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST_MIPMAP_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
     c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
     c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
 
@@ -137,9 +136,8 @@ const FontStorage = extern struct {
         c.glGenTextures(1, &self.texture);
         c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
         c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_R8, @intCast(size), @intCast(size), 0, c.GL_RED, c.GL_UNSIGNED_BYTE, @ptrCast(buffer));
-        c.glGenerateMipmap(c.GL_TEXTURE_2D);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST_MIPMAP_LINEAR);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
         c.glTexParameteriv(c.GL_TEXTURE_2D, c.GL_TEXTURE_SWIZZLE_RGBA, &font_texture_swizzle_mask);
 
         return self;
@@ -214,7 +212,7 @@ pub const Renderer = struct {
     obj_buffer: ArrayList(Vertex),
     all_tex_ids: ArrayList(c.GLuint),
     max_num_meshes: usize,
-    projection: lina.Mat4 = lina.Mat4.ortho(0.0, win.viewport_ratio, -1.0, 0.0, 0.1, 2.0),
+    projection: lina.Mat4 = lina.Mat4.ortho(-win.viewport_ratio / 2, win.viewport_ratio / 2, -0.5, 0.5, 0.1, 2.0),
     view: lina.Mat4 = lina.Mat4.lookAt(lina.vec3(0.5 * win.viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * win.viewport_ratio, -0.5, 0.0), lina.Vec3.unitY),
     images: StringHashMap(ImageData),
     font_data: FontData,
@@ -372,7 +370,7 @@ pub const Renderer = struct {
 
                                 const x_pos = (cursor_x + baked_char.xoff) * font_scale * pixel_to_window_scale;
                                 const y_pos = (cursor_y + baked_char.yoff) * font_scale * pixel_to_window_scale;
-                                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 1.0); // the z coord might change in the future with support for layers
+                                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
                                 const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
                                 const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(pixel_to_window_scale * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_scale));
@@ -399,7 +397,7 @@ pub const Renderer = struct {
                 .image => {
                     const x_pos = cursor_x * font_scale * pixel_to_window_scale;
                     const y_pos = cursor_y * font_scale * pixel_to_window_scale;
-                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 1.0); // the z coord might change in the future with support for layers
+                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
                     const image_data = self.images.get(section.data.text.items).?;
                     const scale = lina.Mat4.scale(.{ .x = @as(f32 ,@floatFromInt(image_data.width)) / @as(f32, @floatFromInt(image_data.height)), .y = 1.0, .z = 1.0, });

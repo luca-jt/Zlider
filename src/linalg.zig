@@ -454,17 +454,17 @@ pub fn LinAlgTypes(comptime T: type) type {
 
                 var result = Self.identity;
                 result.fields[0][0] = s.x;
-                result.fields[0][1] = s.y;
-                result.fields[0][2] = s.z;
-                result.fields[1][0] = u.x;
+                result.fields[1][0] = s.y;
+                result.fields[2][0] = s.z;
+                result.fields[0][1] = u.x;
                 result.fields[1][1] = u.y;
-                result.fields[1][2] = u.z;
-                result.fields[2][0] = - f.x;
-                result.fields[2][1] = - f.y;
+                result.fields[2][1] = u.z;
+                result.fields[0][2] = - f.x;
+                result.fields[1][2] = - f.y;
                 result.fields[2][2] = - f.z;
-                result.fields[0][3] = - Vec3.dot(s, eye);
-                result.fields[1][3] = - Vec3.dot(u, eye);
-                result.fields[2][3] = Vec3.dot(f, eye);
+                result.fields[3][0] = - Vec3.dot(s, eye);
+                result.fields[3][1] = - Vec3.dot(u, eye);
+                result.fields[3][2] = Vec3.dot(f, eye);
                 return result;
             }
 
@@ -475,8 +475,8 @@ pub fn LinAlgTypes(comptime T: type) type {
                 result.fields[0][0] = 1.0 / (aspect * tan_half_fov);
                 result.fields[1][1] = 1.0 / (tan_half_fov);
                 result.fields[2][2] = - (far + near) / (far - near);
-                result.fields[2][3] = - (2 * far * near) / (far - near);
-                result.fields[3][2] = - 1;
+                result.fields[2][3] = - 1;
+                result.fields[3][2] = - (2 * far * near) / (far - near);
                 return result;
             }
 
@@ -489,7 +489,7 @@ pub fn LinAlgTypes(comptime T: type) type {
                 const y = normalized.y;
                 const z = normalized.z;
 
-                const rotate = Self{
+                return .{
                     .fields = [4][4]T{
                         [4]T{ cos + x * x * (1 - cos),       x * y * (1 - cos) + z * sin,    x * z * (1 - cos) - y * sin, 0 },
                         [4]T{ y * x * (1 - cos) - z * sin,   cos + y * y * (1 - cos),        y * z * (1 - cos) + x * sin, 0 },
@@ -497,7 +497,6 @@ pub fn LinAlgTypes(comptime T: type) type {
                         [4]T{ 0,                             0,                              0,                           1 },
                     },
                 };
-                return rotate.transpose(); // too lazy to rewrite for column major for now
             }
 
             pub fn scale(v: Vec3) Self {
@@ -514,10 +513,10 @@ pub fn LinAlgTypes(comptime T: type) type {
             pub fn translation(v: Vec3) Self {
                 return .{
                     .fields = [4][4]T{
-                        [4]T{ 1, 0, 0, v.x },
-                        [4]T{ 0, 1, 0, v.y },
-                        [4]T{ 0, 0, 1, v.z },
-                        [4]T{ 0, 0, 0, 1 },
+                        [4]T{ 1, 0, 0, 0 },
+                        [4]T{ 0, 1, 0, 0 },
+                        [4]T{ 0, 0, 1, 0 },
+                        [4]T{ v.x, v.y, v.z, 1 },
                     },
                 };
             }
@@ -527,10 +526,75 @@ pub fn LinAlgTypes(comptime T: type) type {
                 result.fields[0][0] = 2 / (right - left);
                 result.fields[1][1] = 2 / (top - bottom);
                 result.fields[2][2] = - 2 / (far - near);
-                result.fields[0][3] = - (right + left) / (right - left);
-                result.fields[1][3] = - (top + bottom) / (top - bottom);
-                result.fields[2][3] = - (far + near) / (far - near);
+                result.fields[3][0] = - (right + left) / (right - left);
+                result.fields[3][1] = - (top + bottom) / (top - bottom);
+                result.fields[3][2] = - (far + near) / (far - near);
                 return result;
+            }
+
+            pub fn invert(m: Self) ?Self {
+                // https://github.com/stackgl/gl-mat4/blob/master/invert.js
+                const a: [16]T = @bitCast(m.fields);
+
+                const a00 = a[0];
+                const a01 = a[1];
+                const a02 = a[2];
+                const a03 = a[3];
+                const a10 = a[4];
+                const a11 = a[5];
+                const a12 = a[6];
+                const a13 = a[7];
+                const a20 = a[8];
+                const a21 = a[9];
+                const a22 = a[10];
+                const a23 = a[11];
+                const a30 = a[12];
+                const a31 = a[13];
+                const a32 = a[14];
+                const a33 = a[15];
+
+                const b00 = a00 * a11 - a01 * a10;
+                const b01 = a00 * a12 - a02 * a10;
+                const b02 = a00 * a13 - a03 * a10;
+                const b03 = a01 * a12 - a02 * a11;
+                const b04 = a01 * a13 - a03 * a11;
+                const b05 = a02 * a13 - a03 * a12;
+                const b06 = a20 * a31 - a21 * a30;
+                const b07 = a20 * a32 - a22 * a30;
+                const b08 = a20 * a33 - a23 * a30;
+                const b09 = a21 * a32 - a22 * a31;
+                const b10 = a21 * a33 - a23 * a31;
+                const b11 = a22 * a33 - a23 * a32;
+
+                var det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+
+                if (std.math.approxEqAbs(T, det, 0, 1e-8)) {
+                    return null;
+                }
+                det = 1.0 / det;
+
+                const out = [16]T{
+                    (a11 * b11 - a12 * b10 + a13 * b09) * det,
+                    (a02 * b10 - a01 * b11 - a03 * b09) * det,
+                    (a31 * b05 - a32 * b04 + a33 * b03) * det,
+                    (a22 * b04 - a21 * b05 - a23 * b03) * det,
+                    (a12 * b08 - a10 * b11 - a13 * b07) * det,
+                    (a00 * b11 - a02 * b08 + a03 * b07) * det,
+                    (a32 * b02 - a30 * b05 - a33 * b01) * det,
+                    (a20 * b05 - a22 * b02 + a23 * b01) * det,
+                    (a10 * b10 - a11 * b08 + a13 * b06) * det,
+                    (a01 * b08 - a00 * b10 - a03 * b06) * det,
+                    (a30 * b04 - a31 * b02 + a33 * b00) * det,
+                    (a21 * b02 - a20 * b04 - a23 * b00) * det,
+                    (a11 * b07 - a10 * b09 - a12 * b06) * det,
+                    (a00 * b09 - a01 * b07 + a02 * b06) * det,
+                    (a31 * b01 - a30 * b03 - a32 * b00) * det,
+                    (a20 * b03 - a21 * b01 + a22 * b00) * det,
+                };
+
+                return .{
+                    .fields = @as([4][4]T, @bitCast(out)),
+                };
             }
         };
 
