@@ -377,17 +377,16 @@ pub const Renderer = struct {
                                 const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0))));
                                 const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
 
-                                const font_texture_side_pixel_size: f64 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
-                                const u_coord_0 = @as(f64, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
-                                const v_coord_0 = @as(f64, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
-                                const u_coord_1 = @as(f64, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
-                                const v_coord_1 = @as(f64, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
-                                const uv_scale = lina.vec2(@floatCast(u_coord_1 - u_coord_0), @floatCast(v_coord_1 - v_coord_0));
-                                const uv_offset = lina.vec2(@floatCast(u_coord_0), @floatCast(v_coord_0));
+                                const font_texture_side_pixel_size: f32 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
+                                const u_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
+                                const v_0 = (font_texture_side_pixel_size - @as(f32, @floatFromInt(baked_char.y1))) / font_texture_side_pixel_size;
+                                const u_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
+                                const v_1 = (font_texture_side_pixel_size - @as(f32, @floatFromInt(baked_char.y0))) / font_texture_side_pixel_size;
+                                const uvs = [data.plane_uvs.len]lina.Vec2{ lina.vec2(u_0, v_1), lina.vec2(u_1, v_0), lina.vec2(u_0, v_0), lina.vec2(u_1, v_1) };
 
-                                if (!try self.addFontQuad(trafo, tex_id, uv_scale, uv_offset, section.text_color)) {
+                                if (!try self.addFontQuad(trafo, tex_id, &uvs, section.text_color)) {
                                     self.flush();
-                                    std.debug.assert(try self.addFontQuad(trafo, tex_id, uv_scale, uv_offset, section.text_color));
+                                    std.debug.assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
                                 }
                                 cursor_x += baked_char.xadvance;
                             },
@@ -462,7 +461,7 @@ pub const Renderer = struct {
         self.obj_buffer.clearRetainingCapacity();
     }
 
-    fn addFontQuad(self: *Self, trafo: lina.Mat4, tex_id: c.GLuint, uv_scale: lina.Vec2, uv_offset: lina.Vec2, color: data.Color32) !bool {
+    fn addFontQuad(self: *Self, trafo: lina.Mat4, tex_id: c.GLuint, uvs: []const lina.Vec2, color: data.Color32) !bool {
         // determine texture index
         var tex_idx: c.GLfloat = -1.0;
         for (0..self.all_tex_ids.items.len) |i| {
@@ -489,7 +488,7 @@ pub const Renderer = struct {
             self.obj_buffer.appendAssumeCapacity(.{
                 .position = data.plane_vertices[i].transform4(trafo),
                 .color = color.toVec4(),
-                .uv = data.plane_uvs[i].mul(uv_scale).add(uv_offset),
+                .uv = uvs[i],
                 .tex_idx = tex_idx,
             });
         }
