@@ -144,8 +144,8 @@ const FontStorage = extern struct {
     }
 };
 
-const builtin_font_size_count: usize = 7;
-const baked_font_sizes = [builtin_font_size_count]usize{ 12, 16, 24, 32, 48, 64, 96 }; // indices correspond to indices in a texture array
+const builtin_font_size_count: usize = 6;
+const baked_font_sizes = [builtin_font_size_count]usize{ 32, 48, 64, 96, 128, 160 }; // indices correspond to indices in a texture array
 
 /// converts a font size to an index in the font texture array, when in doubt the bigger size is chosen
 fn fontSizeIndex(font_size: usize) usize {
@@ -173,15 +173,8 @@ const FontData = struct {
         std.debug.assert(c.stbtt_InitFont(&self.font_info, data.default_font, 0) != 0);
         c.stbtt_GetFontVMetrics(&self.font_info, &self.ascent, &self.descent, &self.line_gap);
 
-        var x0: c_int = undefined;
-        var y0: c_int = undefined;
-        var x1: c_int = undefined;
-        var y1: c_int = undefined;
-        c.stbtt_GetFontBoundingBox(&self.font_info, &x0, &y0 , &x1, &y1);
-        const x_diff: usize = @intCast(@abs(x1 - x0));
-        const y_diff: usize = @intCast(@abs(y1 - y0));
         const max_pixel_size: f32 = @floatFromInt(baked_font_sizes[baked_font_sizes.len - 1]);
-        self.font_texture_side_pixel_size = @as(usize, @intFromFloat(@ceil(@as(f32, @floatFromInt(@max(x_diff, y_diff))) * c.stbtt_ScaleForPixelHeight(&self.font_info, max_pixel_size) * @sqrt(@as(f32, @floatFromInt(data.glyph_count))))));
+        self.font_texture_side_pixel_size = @intFromFloat(@ceil(max_pixel_size * @sqrt(@as(f32, @floatFromInt(data.glyph_count)))) * 2); // this seems fine...?
 
         for (0..builtin_font_size_count) |i| {
             self.baked_fonts[i] = try FontStorage.initWithFontData(self.allocator, baked_font_sizes[i], self.font_texture_side_pixel_size);
@@ -337,9 +330,11 @@ pub const Renderer = struct {
         clearScreen(slide.background_color);
 
         const line_spacing: f64 = 1.2; // will be set in the slide files in the future
+        const x_start: f64 = 5; // in pixels
+
         const line_height: f64 = @floatFromInt(self.font_data.ascent - self.font_data.descent + self.font_data.line_gap);
         const yadvance_font: f64 = -line_height * line_spacing; // in font units (analogous to the xadvance in font data but generic)
-        var cursor_x: f64 = 0; // x position in pixel units
+        var cursor_x: f64 = x_start; // x position in pixel units
         var cursor_y: f64 = 0; // y baseline position in pixel units
 
         for (slide.sections.items) |*section| {
@@ -360,7 +355,7 @@ pub const Renderer = struct {
                         switch (char) {
                             '\n' => {
                                 cursor_y += yadvance_font * font_scale;
-                                cursor_x = 0;
+                                cursor_x = x_start;
                             },
                             ' ' => {
                                 const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
@@ -370,7 +365,8 @@ pub const Renderer = struct {
                                 const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
 
                                 const x_pos = (cursor_x + baked_char.xoff) * inverse_viewport_height;
-                                const y_pos = (cursor_y + baked_char.yoff) * inverse_viewport_height;
+                                const y_pos = (cursor_y - line_height * font_scale - baked_char.yoff) * inverse_viewport_height; // the switch of the sign of the y-offset is done to keep the way projections are done
+
                                 const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
                                 const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
@@ -379,9 +375,9 @@ pub const Renderer = struct {
 
                                 const font_texture_side_pixel_size: f32 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
                                 const u_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
-                                const v_0 = (font_texture_side_pixel_size - @as(f32, @floatFromInt(baked_char.y1))) / font_texture_side_pixel_size;
+                                const v_0 = @as(f32, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
                                 const u_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
-                                const v_1 = (font_texture_side_pixel_size - @as(f32, @floatFromInt(baked_char.y0))) / font_texture_side_pixel_size;
+                                const v_1 = @as(f32, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
                                 const uvs = [data.plane_uvs.len]lina.Vec2{ lina.vec2(u_0, v_1), lina.vec2(u_1, v_0), lina.vec2(u_0, v_0), lina.vec2(u_1, v_1) };
 
                                 if (!try self.addFontQuad(trafo, tex_id, &uvs, section.text_color)) {
@@ -412,7 +408,7 @@ pub const Renderer = struct {
                     cursor_y += yadvance_font * font_scale;
                 },
             }
-            cursor_x = 0;
+            cursor_x = x_start;
         }
         self.flush();
     }

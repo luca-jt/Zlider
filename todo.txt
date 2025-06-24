@@ -1,5 +1,6 @@
-font option
+font option (also bake monospace font)
 slide file hot reloading
 line spacing, line breaking, image scaling, slide side ratio, layers, colored areas on slides
 start screen render with no slides -> no black edges here
 use the text alignment in the secions
+text size to be rendered should be precise and not rounded as for the texture -> only rasterize fewer font sizes? font textures should not be square shaped to save space (5 rows should be fine?)

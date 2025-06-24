@@ -221,7 +221,7 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
 }
 
 fn copyFrameBufferToMemory(memory: [:0]u8) void {
-    c.glReadBuffer(c.GL_FRONT); // TODO: or GL_BACK?
+    c.glReadBuffer(c.GL_FRONT); // TODO: or GL_BACK? probably back...
     // TODO: (0,0) of the window or the viewport?
     c.glReadPixels(0, 0, state.window_state.vp_size_x, state.window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
     // TODO: flip the image vertically?
