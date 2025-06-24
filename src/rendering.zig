@@ -145,7 +145,7 @@ const FontStorage = extern struct {
 };
 
 const builtin_font_size_count: usize = 6;
-const baked_font_sizes = [builtin_font_size_count]usize{ 32, 48, 64, 96, 128, 160 }; // indices correspond to indices in a texture array
+const baked_font_sizes = [builtin_font_size_count]usize{ 16, 32, 64, 128, 160, 192 }; // indices correspond to indices in a texture array
 
 /// converts a font size to an index in the font texture array, when in doubt the bigger size is chosen
 fn fontSizeIndex(font_size: usize) usize {
@@ -174,10 +174,11 @@ const FontData = struct {
         c.stbtt_GetFontVMetrics(&self.font_info, &self.ascent, &self.descent, &self.line_gap);
 
         const max_pixel_size: f32 = @floatFromInt(baked_font_sizes[baked_font_sizes.len - 1]);
-        self.font_texture_side_pixel_size = @intFromFloat(@ceil(max_pixel_size * @sqrt(@as(f32, @floatFromInt(data.glyph_count)))) * 2); // this seems fine...?
+        self.font_texture_side_pixel_size = @intFromFloat(max_pixel_size * @ceil(@sqrt(@as(f32, @floatFromInt(data.glyph_count)))));
 
         for (0..builtin_font_size_count) |i| {
             self.baked_fonts[i] = try FontStorage.initWithFontData(self.allocator, baked_font_sizes[i], self.font_texture_side_pixel_size);
+            // for now all the font textures have the same size because its easier and does not really matter
         }
         return self;
     }
@@ -329,48 +330,52 @@ pub const Renderer = struct {
         const slide = current_slide.?;
         clearScreen(slide.background_color);
 
-        const line_spacing: f64 = 1.2; // will be set in the slide files in the future
-        const x_start: f64 = 5; // in pixels
+        const line_spacing: f64 = 1.0; // will be set in the slide files in the future
+        const x_start: f64 = 10; // in pixels
 
-        const line_height: f64 = @floatFromInt(self.font_data.ascent - self.font_data.descent + self.font_data.line_gap);
-        const yadvance_font: f64 = -line_height * line_spacing; // in font units (analogous to the xadvance in font data but generic)
+        const line_height: f64 = @floatFromInt(self.font_data.ascent - self.font_data.descent);
+        const yadvance_font: f64 = -(line_height + @as(f64, @floatFromInt(self.font_data.line_gap)) * line_spacing); // in font units (analogous to the xadvance in font data but generic)
+
         var cursor_x: f64 = x_start; // x position in pixel units
         var cursor_y: f64 = 0; // y baseline position in pixel units
 
         for (slide.sections.items) |*section| {
-            const used_font_size_index = fontSizeIndex(section.text_size);
-            const used_font_size: f64 = @floatFromInt(baked_font_sizes[used_font_size_index]);
+            const sourced_font_size_index = fontSizeIndex(section.text_size * 2); // this ensures crisp fonts on large screens
+            const sourced_font_size: f64 = @floatFromInt(baked_font_sizes[sourced_font_size_index]);
+            const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / sourced_font_size; // we are not sourcing the font size that is displayed
             const inverse_viewport_height = 1.0 / @as(f64, @floatFromInt(data.viewport_resolution_reference[1])); // y-axis as scale reference
-            const font_scale = used_font_size / @as(f64, @floatFromInt(self.font_data.ascent - self.font_data.descent));
+            const font_scale = sourced_font_size / line_height;
+
+            const yadvance = yadvance_font * font_scale * font_display_scale; // this is the specific yadvance accounting for font sizes
 
             switch (section.section_type) {
                 .space => {
-                    cursor_y += yadvance_font * @as(f64, @floatFromInt(section.data.lines)) * font_scale;
+                    cursor_y += yadvance * @as(f64, @floatFromInt(section.data.lines));
                 },
                 .text => {
-                    const font_storage = self.font_data.baked_fonts[used_font_size_index];
+                    const font_storage = self.font_data.baked_fonts[sourced_font_size_index];
                     const tex_id: c.GLuint = font_storage.texture;
 
                     for (section.data.text.items) |char| {
                         switch (char) {
                             '\n' => {
-                                cursor_y += yadvance_font * font_scale;
+                                cursor_y += yadvance;
                                 cursor_x = x_start;
                             },
                             ' ' => {
                                 const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
-                                cursor_x += baked_char.xadvance;
+                                cursor_x += baked_char.xadvance * font_display_scale;
                             },
                             else => {
                                 const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
 
-                                const x_pos = (cursor_x + baked_char.xoff) * inverse_viewport_height;
-                                const y_pos = (cursor_y - line_height * font_scale - baked_char.yoff) * inverse_viewport_height; // the switch of the sign of the y-offset is done to keep the way projections are done
+                                const x_pos = (cursor_x + baked_char.xoff * font_display_scale) * inverse_viewport_height;
+                                const y_pos = (cursor_y - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height; // the switch of the sign of the y-offset is done to keep the way projections are done
 
                                 const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
-                                const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
-                                const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0))));
+                                const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, }); // the baked char data used does not require scaling because it would just cancel out
+                                const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_display_scale));
                                 const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
 
                                 const font_texture_side_pixel_size: f32 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
@@ -384,11 +389,11 @@ pub const Renderer = struct {
                                     self.flush();
                                     std.debug.assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
                                 }
-                                cursor_x += baked_char.xadvance;
+                                cursor_x += baked_char.xadvance * font_display_scale;
                             },
                         }
                     }
-                    cursor_y += yadvance_font * font_scale;
+                    cursor_y += yadvance;
                 },
                 .image => {
                     const x_pos = cursor_x * inverse_viewport_height;
@@ -405,7 +410,7 @@ pub const Renderer = struct {
                         std.debug.assert(try self.addImageQuad(trafo, image_data.texture));
                     }
                     cursor_y -= @as(f64, @floatFromInt(image_data.height));
-                    cursor_y += yadvance_font * font_scale;
+                    cursor_y += yadvance;
                 },
             }
             cursor_x = x_start;

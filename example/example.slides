@@ -1,50 +1,62 @@
 // this is a comment
 
-// set the background color
-bg 0x072626FF
+// text is left-aligned by default
+// default background color is 0xFFFFFFFF
+// default text color is 0x000000FF
+// default text size is 32
+
+// The text size is always relative to a full hd screen. This is done to retain spacing and scaling when displaying on larger screens.
+
+// this text section defines a multiline text segment with the current text size
+text
+This is a test slide that displays text and an image with some spacing in between.
+text
+
+// insert a number of line spacings
+space 1
+
+// include an image (path is relative to the slide show file)
+image test1.png
+
+// Inserting images, spacings, and text creates a new context section where you can define formatting etc. Inserted content always uses the format defined until the next section.
+
+
+
+slide // declare a new slide like this
+
+// settings from previous slides will be kept
+
+// set the background color for the entire slide
+bg 0x2C2E34FF
 
 // set the content alignment
 centered
 
 // set the text color
-text_color 0xFFFFFFFF
+text_color 0xFC5D7CFF
 
-// define the text size
+// define the text size (this also works before any content is defined because there is no previous content)
+text_size 50
+
+
+text
+
+This is a second test slide with formatted text and another image.
+Text segments can be as long as you want.
+
+Empty lines are ignored.
+
+text
+
+space 2
 text_size 20
 
-// this text section defines a multiline text segment with the size 20
 text
-This is a test slide that displays centered text and an image.
+Use spacings for that.
 text
 
-// all the formatting parameters can be re-defined multiple times per slide
-// every time you declare some content to be inserted (like text or images) the formatting previously defined is used
-
-// insert line spacings
-space 2
-
-// include an image (path is relative to the slide show file)
-image test1.png
-
-// inserting images, spacings, and text creates a new context section where you can define formatting etc
-
-slide // declare a new slide like this
-
-bg 0x000000FF
-
-// text is left-aligned by default
-// default background color is 0xFFFFFFFF
-// default text color is 0x000000FF
-// default text size is 12
-// settings from previous slides will be kept
+// All the formatting parameters can be re-defined multiple times per slide for different sections.
+// Every time you declare some content to be inserted (like text or images) the formatting previously defined is used.
 
 right
-
-text
-This is a second test slide with text and an image.
-text
-
-// you can reset the alignment for different sections of a slide
-centered
-
 image ./../example/test2.png // more complicated paths are resolved

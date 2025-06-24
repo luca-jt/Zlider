@@ -206,7 +206,7 @@ pub const SectionType = enum { space, text, image };
 pub const ElementAlignment = enum { center, right, left };
 
 pub const Section = struct {
-    text_size: usize = 12,
+    text_size: usize = 32,
     section_type: SectionType,
     data: SectionData,
     text_color: data.Color32 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
