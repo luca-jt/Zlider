@@ -1,5 +1,5 @@
+rendering the baked fonts at compile time
 font option (also bake monospace font)
 slide file hot reloading
-line spacing, line breaking, image scaling, slide side ratio, layers, colored areas on slides
+auto line breaking, slide side ratio, layers, colored areas on slides
 start screen render with no slides -> no black edges here
-use the text alignment in the secions

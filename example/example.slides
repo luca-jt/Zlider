@@ -38,6 +38,8 @@ text_color 0xFC5D7CFF
 // define the text size (this also works before any content is defined because there is no previous content)
 text_size 50
 
+// set the line spacing factor for the section formatting
+line_spacing 1.8
 
 text
 
@@ -58,5 +60,6 @@ text
 // All the formatting parameters can be re-defined multiple times per slide for different sections.
 // Every time you declare some content to be inserted (like text or images) the formatting previously defined is used.
 
-right
 image ./../example/test2.png // more complicated paths are resolved
+right
+image_scale 0.5 // scales images by a certain factor

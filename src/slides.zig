@@ -7,6 +7,38 @@ const data = @import("data.zig");
 const c = @import("c.zig");
 const win = @import("window.zig");
 
+pub const Keyword = enum(usize) {
+    text_color = 0,
+    bg = 1,
+    slide = 2,
+    centered = 3,
+    left = 4,
+    right = 5,
+    text = 6,
+    space = 7,
+    text_size = 8,
+    image = 9,
+    image_scale = 10,
+    line_spacing = 11,
+};
+
+pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image", "image_scale", "line_spacing" };
+
+pub const Token = union(enum) {
+    text_color: data.Color32,
+    bg: data.Color32,
+    slide,
+    centered,
+    left,
+    right,
+    text: String,
+    space: usize,
+    text_size: usize,
+    image: String,
+    image_scale: f32,
+    line_spacing: f64,
+};
+
 fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     const dir = std.fs.cwd();
     const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
@@ -54,8 +86,8 @@ const Lexer = struct {
         return char;
     }
 
-    fn containedKeyword(self: *Self) ?data.Keyword {
-        for (data.reserved_names, 0..) |name, i| {
+    fn containedKeyword(self: *Self) ?Keyword {
+        for (reserved_names, 0..) |name, i| {
             if (std.mem.eql(u8, self.buffer.items, name)) {
                 return @enumFromInt(i);
             }
@@ -99,9 +131,9 @@ const Lexer = struct {
         return self.buffer.items;
     }
 
-    fn nextToken(self: *Self) !?data.Token {
+    fn nextToken(self: *Self) !?Token {
         self.buffer.clearRetainingCapacity();
-        var token: ?data.Token = null;
+        var token: ?Token = null;
         self.skipWhiteSpace();
 
         while (self.head() != 0) {
@@ -183,6 +215,22 @@ const Lexer = struct {
                         };
                         break :blk .{ .image = resolved_path_owned };
                     },
+                    .image_scale => blk: {
+                        const scale_slice = self.readNextWord();
+                        const parsed_scale = std.fmt.parseFloat(f32, scale_slice) catch {
+                            print("Line {}: '{s}' | ", .{ self.line, scale_slice });
+                            return SlidesParseError.LexerInvalidToken;
+                        };
+                        break :blk .{ .image_scale = parsed_scale };
+                    },
+                    .line_spacing => blk: {
+                        const spacing_slice = self.readNextWord();
+                        const parsed_spacing = std.fmt.parseFloat(f64, spacing_slice) catch {
+                            print("Line {}: '{s}' | ", .{ self.line, spacing_slice });
+                            return SlidesParseError.LexerInvalidToken;
+                        };
+                        break :blk .{ .line_spacing = parsed_spacing };
+                    },
                 };
                 break;
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
@@ -211,6 +259,8 @@ pub const Section = struct {
     data: SectionData,
     text_color: data.Color32 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     alignment: ElementAlignment = .left,
+    image_scale: f32 = 1.0,
+    line_spacing: f64 = 1.0,
 };
 
 pub const Slide = struct {
@@ -416,6 +466,12 @@ pub const SlideShow = struct {
                     try section.data.text.append(0); // for c interop later on
                     section_has_data = true;
                 },
+                .image_scale => |scale| {
+                    section.image_scale = scale;
+                },
+                .line_spacing => |spacing| {
+                    section.line_spacing = spacing;
+                },
             }
         }
 
@@ -437,6 +493,8 @@ fn newSection(slide: *Slide, section: *Section) !void {
     const text_size = section.text_size;
     const text_color = section.text_color;
     const alignment = section.alignment;
+    const image_scale = section.image_scale;
+    const line_spacing = section.line_spacing;
 
     try slide.sections.append(section.*);
 
@@ -444,4 +502,6 @@ fn newSection(slide: *Slide, section: *Section) !void {
     section.text_size = text_size;
     section.text_color = text_color;
     section.alignment = alignment;
+    section.image_scale = image_scale;
+    section.line_spacing = line_spacing;
 }

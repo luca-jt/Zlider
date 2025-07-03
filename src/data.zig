@@ -40,32 +40,37 @@ pub const Color32 = struct {
 
 pub const clear_color = Color32.new(44, 46, 52, 255);
 
-pub const Keyword = enum(usize) {
-    text_color = 0,
-    bg = 1,
-    slide = 2,
-    centered = 3,
-    left = 4,
-    right = 5,
-    text = 6,
-    space = 7,
-    text_size = 8,
-    image = 9,
-};
+pub const LineIterator = struct {
+    next_line_start: usize = 0,
+    string: []const u8,
 
-pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image" };
+    const Self = @This();
 
-pub const Token = union(enum) {
-    text_color: Color32,
-    bg: Color32,
-    slide,
-    centered,
-    left,
-    right,
-    text: String,
-    space: usize,
-    text_size: usize,
-    image: String,
+    pub fn fromSlice(s: []const u8) Self {
+        return .{
+            .string = s,
+        };
+    }
+
+    pub fn next(self: *Self) ?[]const u8 {
+        const start = self.next_line_start;
+        var end = start;
+        var lines_left = false;
+
+        for (self.string[start..]) |char| {
+            if (char == '\n') {
+                lines_left = true;
+                break;
+            }
+            end += 1;
+        } else {
+            if (end == start) return null;
+        }
+
+        const line = self.string[start..end];
+        self.next_line_start = if (lines_left) end + 1 else end;
+        return line;
+    }
 };
 
 pub const vertex_shader: [*:0]const u8 =
