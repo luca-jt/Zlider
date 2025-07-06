@@ -134,9 +134,12 @@ pub const plane_uvs = [4]lina.Vec2{
 
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
 
-pub const default_font: [:0]const u8 = @embedFile("fonts/DMSerifText-Regular.ttf");
+pub const default_font: [:0]const u8 = @embedFile("baked/DMSerifText-Regular.ttf");
+pub const monospace_font: [:0]const u8 = @embedFile("baked/Iosevka-Light.ttf");
 pub const first_char: c_int = 32;
 pub const glyph_count: c_int = 255 - first_char;
 
 // this determines the scaling of the text in rendering, the font size relative to the window size should not change
-pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080 }; // @Cleanup: in the future, when the format of the slides can be changed, this needs to be updated as well
+pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080 }; // @Cleanup: in the future, when the format of the slides can be changed, this needs to be updated as well, the reference should then be the height
+
+pub const file_drop_image: [:0]const u8 = @embedFile("baked/file_drop.png");
