@@ -4,6 +4,7 @@
 // default background color is 0xFFFFFFFF
 // default text color is 0x000000FF
 // default text size is 32
+// default font is serif
 
 // The text size is always relative to a full hd screen. This is done to retain spacing and scaling when displaying on larger screens.
 
@@ -51,7 +52,8 @@ Empty lines are ignored.
 text
 
 space 2
-text_size 20
+text_size 22
+font monospace
 
 text
 Use spacings for that.

@@ -134,7 +134,7 @@ pub const plane_uvs = [4]lina.Vec2{
 
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
 
-pub const default_font: [:0]const u8 = @embedFile("baked/DMSerifText-Regular.ttf");
+pub const serif_font: [:0]const u8 = @embedFile("baked/DMSerifText-Regular.ttf");
 pub const monospace_font: [:0]const u8 = @embedFile("baked/Iosevka-Light.ttf");
 pub const first_char: c_int = 32;
 pub const glyph_count: c_int = 255 - first_char;

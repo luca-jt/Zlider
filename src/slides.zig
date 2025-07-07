@@ -20,9 +20,10 @@ pub const Keyword = enum(usize) {
     image = 9,
     image_scale = 10,
     line_spacing = 11,
+    font = 12,
 };
 
-pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image", "image_scale", "line_spacing" };
+pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image", "image_scale", "line_spacing", "font" };
 
 pub const Token = union(enum) {
     text_color: data.Color32,
@@ -37,6 +38,7 @@ pub const Token = union(enum) {
     image: String,
     image_scale: f32,
     line_spacing: f64,
+    font_style: FontStyle,
 };
 
 fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
@@ -231,6 +233,18 @@ const Lexer = struct {
                         };
                         break :blk .{ .line_spacing = parsed_spacing };
                     },
+                    .font => blk: {
+                        const font_slice = self.readNextWord();
+
+                        const font_style: FontStyle = if (std.mem.eql(u8, font_slice, "serif"))
+                            .serif
+                        else if (std.mem.eql(u8, font_slice, "monospace"))
+                            .monospace
+                        else
+                            return SlidesParseError.LexerInvalidToken;
+
+                        break :blk .{ .font_style = font_style };
+                    },
                 };
                 break;
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
@@ -253,6 +267,8 @@ pub const SectionType = enum { space, text, image };
 
 pub const ElementAlignment = enum { center, right, left };
 
+pub const FontStyle = enum { serif, monospace };
+
 pub const Section = struct {
     text_size: usize = 32,
     section_type: SectionType,
@@ -261,6 +277,7 @@ pub const Section = struct {
     alignment: ElementAlignment = .left,
     image_scale: f32 = 1.0,
     line_spacing: f64 = 1.0,
+    font_style: FontStyle = .serif,
 };
 
 pub const Slide = struct {
@@ -472,6 +489,9 @@ pub const SlideShow = struct {
                 .line_spacing => |spacing| {
                     section.line_spacing = spacing;
                 },
+                .font_style => |style| {
+                    section.font_style = style;
+                },
             }
         }
 
@@ -495,6 +515,7 @@ fn newSection(slide: *Slide, section: *Section) !void {
     const alignment = section.alignment;
     const image_scale = section.image_scale;
     const line_spacing = section.line_spacing;
+    const font_style = section.font_style;
 
     try slide.sections.append(section.*);
 
@@ -504,4 +525,5 @@ fn newSection(slide: *Slide, section: *Section) !void {
     section.alignment = alignment;
     section.image_scale = image_scale;
     section.line_spacing = line_spacing;
+    section.font_style = font_style;
 }

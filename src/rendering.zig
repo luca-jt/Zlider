@@ -2,6 +2,7 @@ const c = @import("c.zig");
 const data = @import("data.zig");
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
+const HashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const win = @import("window.zig");
@@ -119,19 +120,23 @@ const Vertex = extern struct {
 
 const font_texture_swizzle_mask = [4:0]c.GLint{ c.GL_ONE, c.GL_ONE, c.GL_ONE, c.GL_RED };
 
+const font_render_size_multiplier: usize = 2; // picks a larger font size to source from for rendering on larger screens
+
 const FontStorage = extern struct {
     texture: c.GLuint = undefined,
     baked_chars: [data.glyph_count]c.stbtt_bakedchar = undefined,
+    texture_side_size: usize,
 
     const Self = @This();
 
-    fn initWithFontData(allocator: Allocator, font_size: usize, buffer_side_size: usize) !Self {
-        var self: Self = .{};
+    fn initWithFontData(allocator: Allocator, font: [:0]const u8, font_size: usize) !Self {
+        const float_font_size: f32 = @floatFromInt(font_size);
+        const size: usize = @intFromFloat(float_font_size * @ceil(@sqrt(@as(f32, @floatFromInt(data.glyph_count))) + 1)); // this should be enough?!
+        var self: Self = .{ .texture_side_size = size };
 
-        const size = buffer_side_size;
         const buffer = try allocator.alloc(u8, size * size);
         defer allocator.free(buffer);
-        _ = c.stbtt_BakeFontBitmap(data.default_font, 0, @floatFromInt(font_size), @ptrCast(buffer), @intCast(size), @intCast(size), data.first_char, data.glyph_count, &self.baked_chars);
+        _ = c.stbtt_BakeFontBitmap(font, 0, float_font_size, @ptrCast(buffer), @intCast(size), @intCast(size), data.first_char, data.glyph_count, &self.baked_chars);
 
         c.glGenTextures(1, &self.texture);
         c.glBindTexture(c.GL_TEXTURE_2D, self.texture);
@@ -144,49 +149,51 @@ const FontStorage = extern struct {
     }
 };
 
-const builtin_font_size_count: usize = 6;
-const baked_font_sizes = [builtin_font_size_count]usize{ 16, 32, 64, 128, 160, 192 }; // indices correspond to indices in a texture array
-
-/// converts a font size to an index in the font texture array, when in doubt the bigger size is chosen
-fn fontSizeIndex(font_size: usize) usize {
-    for (baked_font_sizes, 0..) |size, i|  {
-        const dist: i64 = @as(i64, @intCast(font_size)) - @as(i64, @intCast(size));
-        if (dist <= 0) return i;
-    }
-    return builtin_font_size_count - 1;
-}
-
 const FontData = struct {
     font_info: c.stbtt_fontinfo = undefined,
     ascent: c_int = undefined,
     descent: c_int = undefined,
     line_gap: c_int = undefined,
-    font_texture_side_pixel_size: usize = undefined,
-    baked_fonts: [builtin_font_size_count]FontStorage = undefined,
+    loaded_fonts: HashMap(usize, FontStorage),
     allocator: Allocator,
+    font: [:0]const u8,
 
     const Self = @This();
 
-    fn init(allocator: Allocator) !Self {
-        var self = Self{ .allocator = allocator };
+    fn init(allocator: Allocator, font: [:0]const u8) !Self {
+        var self = Self{
+            .allocator = allocator,
+            .loaded_fonts = HashMap(usize, FontStorage).init(allocator),
+            .font = font,
+        };
 
-        std.debug.assert(c.stbtt_InitFont(&self.font_info, data.default_font, 0) != 0);
+        std.debug.assert(c.stbtt_InitFont(&self.font_info, font, 0) != 0);
         c.stbtt_GetFontVMetrics(&self.font_info, &self.ascent, &self.descent, &self.line_gap);
 
-        const max_pixel_size: f32 = @floatFromInt(baked_font_sizes[baked_font_sizes.len - 1]);
-        self.font_texture_side_pixel_size = @intFromFloat(max_pixel_size * @ceil(@sqrt(@as(f32, @floatFromInt(data.glyph_count)))));
-
-        for (0..builtin_font_size_count) |i| {
-            self.baked_fonts[i] = try FontStorage.initWithFontData(self.allocator, baked_font_sizes[i], self.font_texture_side_pixel_size);
-            // for now all the font textures have the same size because its easier and does not really matter
-        }
         return self;
     }
 
-    fn deinit(self: *Self) void {
-        for (&self.baked_fonts) |*storage| {
+    fn loadFont(self: *Self, font_size: usize) void {
+        const sourced_font_size = font_size * font_render_size_multiplier;
+        if (self.loaded_fonts.contains(sourced_font_size)) return;
+        const font_storage = FontStorage.initWithFontData(self.allocator, self.font, sourced_font_size) catch @panic("allocation error");
+        self.loaded_fonts.put(sourced_font_size, font_storage) catch @panic("allocation error");
+    }
+
+    fn clear(self: *Self) void {
+        var storage_iterator = self.loaded_fonts.valueIterator();
+        while (storage_iterator.next()) |storage| {
             c.glDeleteTextures(1, &storage.texture);
         }
+        self.loaded_fonts.clearRetainingCapacity();
+    }
+
+    fn deinit(self: *Self) void {
+        var storage_iterator = self.loaded_fonts.valueIterator();
+        while (storage_iterator.next()) |storage| {
+            c.glDeleteTextures(1, &storage.texture);
+        }
+        self.loaded_fonts.deinit();
     }
 };
 
@@ -209,7 +216,8 @@ pub const Renderer = struct {
     projection: lina.Mat4 = lina.Mat4.ortho(-win.viewport_ratio / 2, win.viewport_ratio / 2, -0.5, 0.5, 0.1, 2.0),
     view: lina.Mat4 = lina.Mat4.lookAt(lina.vec3(0.5 * win.viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * win.viewport_ratio, -0.5, 0.0), lina.Vec3.unitY),
     images: StringHashMap(ImageData),
-    font_data: FontData,
+    serif_font_data: FontData,
+    monospace_font_data: FontData,
     allocator: Allocator,
 
     const Self = @This();
@@ -231,7 +239,8 @@ pub const Renderer = struct {
             .all_tex_ids = try ArrayList(c.GLuint).initCapacity(allocator, max_texture_count - 1),
             .max_num_meshes = max_num_meshes,
             .images = StringHashMap(ImageData).init(allocator),
-            .font_data = try FontData.init(allocator),
+            .serif_font_data = try FontData.init(allocator, data.serif_font),
+            .monospace_font_data = try FontData.init(allocator, data.monospace_font),
             .allocator = allocator,
         };
 
@@ -290,7 +299,8 @@ pub const Renderer = struct {
             c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.deinit();
-        self.font_data.deinit();
+        self.serif_font_data.deinit();
+        self.monospace_font_data.deinit();
     }
 
     pub fn clear(self: *Self) void {
@@ -300,23 +310,37 @@ pub const Renderer = struct {
             c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.clearRetainingCapacity();
+
+        self.serif_font_data.clear();
+        self.monospace_font_data.clear();
     }
 
     pub fn loadSlideData(self: *Self, slide_show: *SlideShow) void {
         for (slide_show.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
-                if (section.section_type != .image) continue;
-                if (self.images.contains(section.data.text.items)) continue;
+                switch (section.section_type) {
+                    .image => {
+                        if (self.images.contains(section.data.text.items)) continue;
 
-                var width: c_int = undefined;
-                var height: c_int = undefined;
-                var num_channels: c_int = undefined;
-                const image = c.stbi_load(@ptrCast(section.data.text.items), &width, &height, &num_channels, 4);
+                        var width: c_int = undefined;
+                        var height: c_int = undefined;
+                        var num_channels: c_int = undefined;
+                        const image = c.stbi_load(@ptrCast(section.data.text.items), &width, &height, &num_channels, 4);
 
-                const tex_id = generateTexture(image, width, height);
-                c.stbi_image_free(image);
-                const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
-                self.images.put(section.data.text.items, image_data) catch @panic("allocation error");
+                        const tex_id = generateTexture(image, width, height);
+                        c.stbi_image_free(image);
+                        const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
+                        self.images.put(section.data.text.items, image_data) catch @panic("allocation error");
+                    },
+                    .text => {
+                        const font_data = switch (section.font_style) {
+                            .serif => &self.serif_font_data,
+                            .monospace => &self.monospace_font_data,
+                        };
+                        font_data.loadFont(section.text_size);
+                    },
+                    .space => {},
+                }
             }
         }
     }
@@ -331,19 +355,21 @@ pub const Renderer = struct {
         clearScreen(slide.background_color);
 
         const min_x_start: f64 = 10; // in pixels
-        const line_height: f64 = @floatFromInt(self.font_data.ascent - self.font_data.descent);
-
         var cursor_x: f64 = min_x_start; // x position in pixel units
         var cursor_y: f64 = 0; // y baseline position in pixel units
 
         for (slide.sections.items) |*section| {
-            const sourced_font_size_index = fontSizeIndex(section.text_size * 2); // this ensures crisp fonts on large screens
-            const sourced_font_size: f64 = @floatFromInt(baked_font_sizes[sourced_font_size_index]);
-            const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / sourced_font_size; // we are not sourcing the font size that is displayed
+            const font_data = switch (section.font_style) {
+                .serif => &self.serif_font_data,
+                .monospace => &self.monospace_font_data,
+            };
+            const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent);
+            const sourced_font_size = section.text_size * font_render_size_multiplier;
+            const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / @as(f64, @floatFromInt(sourced_font_size)); // needed as we are not sourcing the font size that is displayed
             const inverse_viewport_height = 1.0 / @as(f64, @floatFromInt(data.viewport_resolution_reference[1])); // y-axis as scale reference
-            const font_scale = sourced_font_size / line_height;
+            const font_scale = @as(f64, @floatFromInt(sourced_font_size)) / line_height;
 
-            const yadvance_font: f64 = -(line_height + @as(f64, @floatFromInt(self.font_data.line_gap))) * section.line_spacing; // in font units (analogous to the xadvance in font data but generic)
+            const yadvance_font: f64 = -(line_height + @as(f64, @floatFromInt(font_data.line_gap))) * section.line_spacing; // in font units (analogous to the xadvance in font data but generic)
             const yadvance = yadvance_font * font_scale * font_display_scale; // this is the specific yadvance accounting for font sizes
 
             switch (section.section_type) {
@@ -351,11 +377,12 @@ pub const Renderer = struct {
                     cursor_y += yadvance * @as(f64, @floatFromInt(section.data.lines));
                 },
                 .text => {
-                    const font_storage = self.font_data.baked_fonts[sourced_font_size_index];
+                    const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
                     const tex_id: c.GLuint = font_storage.texture;
                     var line_iterator = data.LineIterator.fromSlice(section.data.text.items);
 
                     while (line_iterator.next()) |line| {
+                        // check line width and determine cursor start for alignment
                         var line_width: f64 = 0;
                         for (line) |char| {
                             const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
@@ -376,15 +403,17 @@ pub const Renderer = struct {
                                 },
                                 else => {
                                     const x_pos = (cursor_x + baked_char.xoff * font_display_scale) * inverse_viewport_height;
-                                    const y_pos = (cursor_y - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height; // the switch of the sign of the y-offset is done to keep the way projections are done
+                                    const y_pos = (cursor_y - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
+                                    // the switch of the sign of the y-offset is done to keep the way projections are done
 
                                     const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
-                                    const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, }); // the baked char data used does not require scaling because it would just cancel out
+                                    // the baked char data used does not require scaling because it would just cancel out
+                                    const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
                                     const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_display_scale));
                                     const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
 
-                                    const font_texture_side_pixel_size: f32 = @floatFromInt(self.font_data.font_texture_side_pixel_size);
+                                    const font_texture_side_pixel_size: f32 = @floatFromInt(font_storage.texture_side_size);
                                     const u_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
                                     const v_0 = @as(f32, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
                                     const u_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
