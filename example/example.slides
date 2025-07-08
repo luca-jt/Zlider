@@ -6,7 +6,7 @@
 // default text size is 32
 // default font is serif
 
-// The text size is always relative to a full hd screen. This is done to retain spacing and scaling when displaying on larger screens.
+// The text size is always relative to a 1080p screen. This is done to retain spacing and scaling when displaying on larger (or smaller) screens.
 
 // this text section defines a multiline text segment with the current text size
 text
@@ -14,12 +14,12 @@ This is a test slide that displays text and an image with some spacing in betwee
 text
 
 // insert a number of line spacings
-space 1
+space 2
 
 // include an image (path is relative to the slide show file)
 image test1.png
 
-// Inserting images, spacings, and text creates a new context section where you can define formatting etc. Inserted content always uses the format defined until the next section.
+// Inserting images, spacings, and text creates a new context section. You can define formatting etc. for them before inserting the content. Inserted content always uses the last value defined for a formatting option.
 
 
 
@@ -29,9 +29,6 @@ slide // declare a new slide like this
 
 // set the background color for the entire slide
 bg 0x2C2E34FF
-
-// set the content alignment
-centered
 
 // set the text color
 text_color 0xFC5D7CFF
@@ -51,9 +48,11 @@ Empty lines are ignored.
 
 text
 
-space 2
+space 1
+
 text_size 22
 font monospace
+right // set the content alignment
 
 text
 Use spacings for that.
@@ -62,6 +61,7 @@ text
 // All the formatting parameters can be re-defined multiple times per slide for different sections.
 // Every time you declare some content to be inserted (like text or images) the formatting previously defined is used.
 
-image ./../example/test2.png // more complicated paths are resolved
-right
+centered
 image_scale 0.5 // scales images by a certain factor
+
+image ./../example/test2.png // more complicated paths are resolved

@@ -17,6 +17,7 @@ pub fn main() !void {
     const window = win.initWindow(800, 450, win.default_title);
     defer win.closeWindow(window);
     win.setEventConfig(window);
+    c.stbi_flip_vertically_on_write(1);
 
     state.renderer = try rendering.Renderer.init(allocator);
     defer state.renderer.deinit();

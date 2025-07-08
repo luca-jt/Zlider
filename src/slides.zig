@@ -321,7 +321,7 @@ pub const SlideShow = struct {
         self.tracked_file.deinit();
     }
 
-    pub fn loadedFileNameNoExtension(self: *Self) []const u8 {
+    pub fn loadedFileNameNoExtension(self: *const Self) []const u8 {
         const file_name = self.loadedFileName();
 
         var i = file_name.len;
@@ -333,11 +333,15 @@ pub const SlideShow = struct {
         return file_name[0..end];
     }
 
-    fn loadedFileName(self: *Self) []const u8 {
+    fn loadedFileName(self: *const Self) []const u8 {
         return std.fs.path.basename(self.tracked_file.items);
     }
 
-    pub fn windowTitleAlloc(self: *Self) !String {
+    pub fn loadedFileDir(self: *const Self) []const u8 {
+        return std.fs.path.dirname(self.tracked_file.items).?; // the file path is always valid
+    }
+
+    pub fn windowTitleAlloc(self: *const Self) !String {
         var title = String.init(self.allocator);
         errdefer title.deinit();
         try title.appendSlice(win.default_title);
@@ -406,8 +410,7 @@ pub const SlideShow = struct {
             &self.slides.items[self.slide_index];
     }
 
-    fn newSlide(self: *Self, slide: *Slide, section: *Section) !void {
-        try newSection(slide, section);
+    fn newSlide(self: *Self, slide: *Slide) !void {
         const bg_color = slide.background_color;
         try self.slides.append(slide.*);
         slide.* = Slide.init(self.allocator);
@@ -417,15 +420,13 @@ pub const SlideShow = struct {
     fn parseSlideShow(self: *Self, file_contents: *const String) !void {
         errdefer self.unloadSlides();
 
-        const slide_file_dir = std.fs.path.dirname(self.tracked_file.items).?; // the file path is always valid
+        const slide_file_dir = self.loadedFileDir();
         var lexer = try Lexer.initWithInput(self.allocator, file_contents.items, slide_file_dir);
         defer lexer.deinit();
 
         var slide = Slide.init(self.allocator);
         errdefer slide.sections.deinit();
         var section = Section{ .section_type = undefined, .data = undefined };
-        var section_has_data = false;
-        errdefer if (section_has_data and section.section_type != .space) section.data.text.deinit();
 
         while (try lexer.nextToken()) |token| {
             switch (token) {
@@ -436,12 +437,11 @@ pub const SlideShow = struct {
                     slide.background_color = color;
                 },
                 .slide => {
-                    if (slide.sections.items.len == 0 and !section_has_data) {
+                    if (slide.sections.items.len == 0) {
                         print("Line: {} | ", .{lexer.line});
                         return SlidesParseError.EmptySlide;
                     }
-                    try self.newSlide(&slide, &section);
-                    section_has_data = false;
+                    try self.newSlide(&slide);
                 },
                 .centered => {
                     section.alignment = .center;
@@ -453,35 +453,23 @@ pub const SlideShow = struct {
                     section.alignment = .right;
                 },
                 .text => |string| {
-                    if (section_has_data) {
-                        // skip the first section append
-                        try newSection(&slide, &section);
-                    }
                     section.section_type = .text;
                     section.data = .{ .text = string };
-                    section_has_data = true;
+                    try newSection(&slide, &section);
                 },
                 .space => |number| {
-                    if (section_has_data) {
-                        // skip the first section append
-                        try newSection(&slide, &section);
-                    }
                     section.section_type = .space;
                     section.data = .{ .lines = number };
-                    section_has_data = true;
+                    try newSection(&slide, &section);
                 },
                 .text_size => |number| {
                     section.text_size = number;
                 },
                 .image => |path| {
-                    if (section_has_data) {
-                        // skip the first section append
-                        try newSection(&slide, &section);
-                    }
                     section.section_type = .image;
                     section.data = .{ .text = path };
                     try section.data.text.append(0); // for c interop later on
-                    section_has_data = true;
+                    try newSection(&slide, &section);
                 },
                 .image_scale => |scale| {
                     section.image_scale = scale;
@@ -496,14 +484,11 @@ pub const SlideShow = struct {
         }
 
         // create the last slide
-        if (slide.sections.items.len == 0 and !section_has_data) {
+        if (slide.sections.items.len == 0) {
             print("Line: {} | ", .{lexer.line});
             return SlidesParseError.EmptySlide;
         }
-        std.debug.assert(section_has_data);
-        try newSection(&slide, &section);
         try self.slides.append(slide);
-        section_has_data = false;
 
         if (self.slides.items.len > 999) return SlidesParseError.TooManySlides;
     }

@@ -1,4 +1,4 @@
 slide file hot reloading
 auto line breaking, slide side ratio, layers, colored areas on slides
 start screen render with no slides -> no black edges here
-define section parameters before the section data
+fallthrough slides to enable basic animations

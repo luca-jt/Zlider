@@ -15,28 +15,28 @@ pub fn updateWindowAttributes(window: *c.GLFWwindow) void {
     c.glfwGetWindowSize(window, &state.window_state.win_size_x, &state.window_state.win_size_y);
 }
 
-fn resizeViewport(width: u32, height: u32) void {
+fn resizeViewport(width: c_int, height: c_int) void {
     var w = width;
     var h = height;
-    var vp_x: u32 = 0;
-    var vp_y: u32 = 0;
+    var vp_x: c_int = 0;
+    var vp_y: c_int = 0;
     const regular_ratio = @as(f32, @floatFromInt(w)) / @as(f32, @floatFromInt(h));
 
     if (viewport_ratio < regular_ratio) {
-        const forced_width: u32 = @intFromFloat(@as(f32, @floatFromInt(h)) * viewport_ratio);
-        vp_x = (w - forced_width) / 2;
+        const forced_width: c_int = @intFromFloat(@as(f32, @floatFromInt(h)) * viewport_ratio);
+        vp_x = @divTrunc((w - forced_width), 2);
         w = forced_width;
     } else if (viewport_ratio > regular_ratio) {
-        const forced_height: u32 = @intFromFloat(@as(f32, @floatFromInt(w)) / viewport_ratio);
-        vp_y = (h - forced_height) / 2;
+        const forced_height: c_int = @intFromFloat(@as(f32, @floatFromInt(w)) / viewport_ratio);
+        vp_y = @divTrunc((h - forced_height), 2);
         h = forced_height;
     }
 
-    c.glViewport(@intCast(vp_x), @intCast(vp_y), @intCast(w), @intCast(h));
-    c.glScissor(@intCast(vp_x), @intCast(vp_y), @intCast(w), @intCast(h));
+    c.glViewport(vp_x, vp_y, w, h);
+    c.glScissor(vp_x, vp_y, w, h);
 }
 
-pub fn initWindow(width: u32, height: u32, title: [:0]const u8) *c.GLFWwindow {
+pub fn initWindow(width: c_int, height: c_int, title: [:0]const u8) *c.GLFWwindow {
     if (c.glfwInit() == c.GL_FALSE) {
         @panic("Failed to initialize GLFW.");
     }
@@ -49,7 +49,7 @@ pub fn initWindow(width: u32, height: u32, title: [:0]const u8) *c.GLFWwindow {
         c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, c.GL_TRUE);
     }
 
-    const window = c.glfwCreateWindow(@intCast(width), @intCast(height), title, null, null) orelse @panic("Failed to create GLFW window.");
+    const window = c.glfwCreateWindow(width, height, title, null, null) orelse @panic("Failed to create GLFW window.");
 
     c.glfwMakeContextCurrent(window);
     c.glfwSetWindowSizeLimits(window, 100, 100, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
@@ -58,7 +58,7 @@ pub fn initWindow(width: u32, height: u32, title: [:0]const u8) *c.GLFWwindow {
         @panic("Failed to initialize GLAD.");
     }
 
-    resizeViewport(width, height);
+    framebufferSizeCallback(window, width, height);
 
     return window;
 }
@@ -69,7 +69,7 @@ pub fn closeWindow(window: *c.GLFWwindow) void {
 }
 
 fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
-    resizeViewport(@intCast(width), @intCast(height));
+    resizeViewport(width, height);
     c.glGetIntegerv(c.GL_VIEWPORT, &state.window_state.vp_pos_x); // this overwrites both viewport position and size
     c.glfwGetWindowSize(window, &state.window_state.win_size_x, &state.window_state.win_size_y);
 }
@@ -106,6 +106,7 @@ fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
         var down = false;
         var i = false;
         var c = false;
+        var esc = false;
     };
 
     const event = c.glfwGetKey(window, key);
@@ -146,6 +147,11 @@ fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
         c.GLFW_KEY_C => blk: {
             const flip = pressed and !KeyStates.c or released and KeyStates.c;
             if (flip) KeyStates.c = !KeyStates.c;
+            break :blk flip and pressed;
+        },
+        c.GLFW_KEY_ESCAPE => blk: {
+            const flip = pressed and !KeyStates.esc or released and KeyStates.esc;
+            if (flip) KeyStates.esc = !KeyStates.esc;
             break :blk flip and pressed;
         },
         else => false,
@@ -195,10 +201,10 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
         const slide_mem = try allocator.allocSentinel(u8, slide_mem_size, 0);
         defer allocator.free(slide_mem);
 
-        const compression_level = 1;
-
         var slide_file_name = String.init(allocator);
         defer slide_file_name.deinit();
+        try slide_file_name.appendSlice(state.slide_show.loadedFileDir());
+        try slide_file_name.append('/');
         try slide_file_name.appendSlice(state.slide_show.loadedFileNameNoExtension());
         try slide_file_name.appendSlice("_000.png");
         try slide_file_name.append(0);
@@ -211,18 +217,19 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
 
             try state.renderer.render(&state.slide_show);
             copyFrameBufferToMemory(slide_mem);
-            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window_state.vp_size_x, state.window_state.vp_size_y, compression_level, @ptrCast(slide_mem), 4);
+            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window_state.vp_size_x, state.window_state.vp_size_y, 4, @ptrCast(slide_mem), state.window_state.vp_size_x * 4);
             print("Dumped slide {} to file '{s}'.\n", .{slide_number, slide_file_name.items[0..slide_file_name.items.len-1]});
             state.slide_show.slide_index += 1;
         }
 
         state.slide_show.slide_index = current_slide_idx;
     }
+    // close the window
+    if (keyIsPressed(window, c.GLFW_KEY_ESCAPE)) {
+        c.glfwSetWindowShouldClose(window, c.GLFW_TRUE);
+    }
 }
 
 fn copyFrameBufferToMemory(memory: [:0]u8) void {
-    c.glReadBuffer(c.GL_FRONT); // TODO: or GL_BACK? probably back...
-    // TODO: (0,0) of the window or the viewport?
-    c.glReadPixels(0, 0, state.window_state.vp_size_x, state.window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
-    // TODO: flip the image vertically?
+    c.glReadPixels(state.window_state.vp_pos_x, state.window_state.vp_pos_y, state.window_state.vp_size_x, state.window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
 }
