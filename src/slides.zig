@@ -82,7 +82,7 @@ const Lexer = struct {
         self.buffer.deinit();
     }
 
-    fn head(self: *Self) u8 {
+    fn head(self: *const Self) u8 {
         const char = self.input[self.ptr];
         if (char == '\t') return ' '; // we don't want tabs in the final text
         return char;
@@ -374,7 +374,7 @@ pub const SlideShow = struct {
         };
         defer file_contents.deinit();
 
-        self.parseSlideShow(&file_contents) catch |e| {
+        self.parseSlideShow(file_contents.items) catch |e| {
             print("Error: {s}", .{@errorName(e)});
             print("\nUnable to parse slide show file: {s}\n", .{file_path});
             return;
@@ -403,7 +403,7 @@ pub const SlideShow = struct {
         c.glfwSetWindowTitle(window, @ptrCast(new_title.items));
     }
 
-    pub fn currentSlide(self: *Self) ?*Slide {
+    pub fn currentSlide(self: *const Self) ?*Slide {
         return if (self.slides.items.len == 0)
             null
         else
@@ -417,11 +417,11 @@ pub const SlideShow = struct {
         slide.background_color = bg_color;
     }
 
-    fn parseSlideShow(self: *Self, file_contents: *const String) !void {
+    fn parseSlideShow(self: *Self, file_contents: []const u8) !void {
         errdefer self.unloadSlides();
 
         const slide_file_dir = self.loadedFileDir();
-        var lexer = try Lexer.initWithInput(self.allocator, file_contents.items, slide_file_dir);
+        var lexer = try Lexer.initWithInput(self.allocator, file_contents, slide_file_dir);
         defer lexer.deinit();
 
         var slide = Slide.init(self.allocator);

@@ -40,26 +40,21 @@ pub const Color32 = struct {
 
 pub const clear_color = Color32.new(44, 46, 52, 255);
 
-pub const LineIterator = struct {
-    next_line_start: usize = 0,
+pub const SplitIterator = struct {
+    next_part_start: usize = 0,
     string: []const u8,
+    delimiter: u8,
 
     const Self = @This();
 
-    pub fn fromSlice(s: []const u8) Self {
-        return .{
-            .string = s,
-        };
-    }
-
     pub fn next(self: *Self) ?[]const u8 {
-        const start = self.next_line_start;
+        const start = self.next_part_start;
         var end = start;
-        var lines_left = false;
+        var parts_left = false;
 
         for (self.string[start..]) |char| {
-            if (char == '\n') {
-                lines_left = true;
+            if (char == self.delimiter) {
+                parts_left = true;
                 break;
             }
             end += 1;
@@ -68,7 +63,7 @@ pub const LineIterator = struct {
         }
 
         const line = self.string[start..end];
-        self.next_line_start = if (lines_left) end + 1 else end;
+        self.next_part_start = if (parts_left) end + 1 else end;
         return line;
     }
 };
@@ -143,3 +138,28 @@ pub const glyph_count: c_int = 255 - first_char;
 pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080 }; // @Cleanup: in the future, when the format of the slides can be changed, this needs to be updated as well, the reference should then be the height
 
 pub const file_drop_image: [:0]const u8 = @embedFile("baked/file_drop.png");
+
+pub const home_screen_slide: [:0]const u8 =
+    \\\centered
+    \\\text_color 0xF6A319FF
+    \\\bg 0x2C2E34FF
+    \\\text_size 10
+    \\\
+    \\\space 10
+    \\\
+    \\\text_size 300
+    \\\
+    \\\text
+    \\\Zlider
+    \\\text
+    \\\
+    \\\text_color 0xE2E2E3FF
+    \\\text_size 30
+    \\\font monospace
+    \\\
+    \\\text
+    \\\Drag and drop a slide show file to load.
+    \\\text
+    \\\
+    \\\file_drop_image
+;

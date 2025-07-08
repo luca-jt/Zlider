@@ -379,7 +379,7 @@ pub const Renderer = struct {
                 .text => {
                     const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
                     const tex_id: c.GLuint = font_storage.texture;
-                    var line_iterator = data.LineIterator.fromSlice(section.data.text.items);
+                    var line_iterator = data.SplitIterator{ .string = section.data.text.items, .delimiter = '\n' };
 
                     while (line_iterator.next()) |line| {
                         // check line width and determine cursor start for alignment
