@@ -182,13 +182,13 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
         }
     }
     // unload the slides
-    if (keyIsPressed(window, c.GLFW_KEY_C)) {
+    if (keyIsPressed(window, c.GLFW_KEY_C) and state.slide_show.fileIsTracked()) {
         state.renderer.clear();
         state.slide_show.loadHomeScreenSlide(window);
         state.renderer.loadSlideData(&state.slide_show);
     }
     // dump the slides to png
-    if (keyIsPressed(window, c.GLFW_KEY_I)) {
+    if (keyIsPressed(window, c.GLFW_KEY_I) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
         const current_slide_idx = state.slide_show.slide_index;
         state.slide_show.slide_index = 0;
 
