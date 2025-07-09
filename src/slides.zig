@@ -8,29 +8,27 @@ const c = @import("c.zig");
 const win = @import("window.zig");
 
 pub const Keyword = enum(usize) {
-    text_color = 0,
-    bg = 1,
-    slide = 2,
-    centered = 3,
-    left = 4,
-    right = 5,
-    text = 6,
-    space = 7,
-    text_size = 8,
-    image = 9,
-    image_scale = 10,
-    line_spacing = 11,
-    font = 12,
-    file_drop_image = 13,
+    text_color,
+    bg,
+    slide,
+    center,
+    left,
+    right,
+    text,
+    space,
+    text_size,
+    image,
+    image_scale,
+    line_spacing,
+    font,
+    file_drop_image,
 };
-
-pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image", "image_scale", "line_spacing", "font", "file_drop_image" };
 
 pub const Token = union(enum) {
     text_color: data.Color32,
     bg: data.Color32,
     slide,
-    centered,
+    center,
     left,
     right,
     text: String,
@@ -43,6 +41,7 @@ pub const Token = union(enum) {
     file_drop_image,
 };
 
+/// Allocates memory, reads the contents of an entire file into a dynamic string and adds null-termination.
 fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     const dir = std.fs.cwd();
     const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
@@ -52,7 +51,7 @@ fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     return string;
 }
 
-pub const SlidesParseError = error{
+pub const SlidesParseError = error {
     LexerNoClosingKeyword,
     LexerUnknownKeyword,
     LexerInvalidToken,
@@ -62,7 +61,7 @@ pub const SlidesParseError = error{
 };
 
 const Lexer = struct {
-    file_dir: []const u8, // where the slide show file lives (canonical)
+    file_dir: ?[]const u8, // where the slide show file lives (canonical)
     line: usize = 1,
     buffer: String,
     input: [*:0]const u8,
@@ -71,7 +70,7 @@ const Lexer = struct {
 
     const Self = @This();
 
-    fn initWithInput(allocator: Allocator, input: []const u8, file_dir: []const u8) !Self {
+    fn initWithInput(allocator: Allocator, input: []const u8, file_dir: ?[]const u8) !Self {
         return .{
             .file_dir = file_dir,
             .buffer = try String.initCapacity(allocator, input.len), // the buffer is sure to only ever contain the entire input at most, so this enables us to minimize allocations
@@ -86,14 +85,14 @@ const Lexer = struct {
 
     fn head(self: *const Self) u8 {
         const char = self.input[self.ptr];
-        if (char == '\t') return ' '; // we don't want tabs in the final text
+        if (char == '\t') return ' '; // we don't want tabs in the final text and replace them with single spaces
         return char;
     }
 
     fn containedKeyword(self: *Self) ?Keyword {
-        for (reserved_names, 0..) |name, i| {
-            if (std.mem.eql(u8, self.buffer.items, name)) {
-                return @enumFromInt(i);
+        inline for (@typeInfo(Keyword).@"enum".fields) |field| {
+            if (std.mem.eql(u8, self.buffer.items, field.name)) {
+                return @enumFromInt(field.value);
             }
         }
         return null;
@@ -167,7 +166,7 @@ const Lexer = struct {
                         }
                     },
                     .slide => .slide,
-                    .centered => .centered,
+                    .center => .center,
                     .left => .left,
                     .right => .right,
                     .text => blk: {
@@ -204,12 +203,12 @@ const Lexer = struct {
                         break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
-                        if (self.file_dir.len == 0) return error.ImageInInternalSource;
+                        if (self.file_dir == null) return error.ImageInInternalSource;
 
                         const path_slice = self.readNextWord();
                         var full_image_path = String.init(self.allocator);
                         defer full_image_path.deinit();
-                        try full_image_path.appendSlice(self.file_dir);
+                        try full_image_path.appendSlice(self.file_dir.?);
                         try full_image_path.append('/'); // i think this should be fine on windows
                         try full_image_path.appendSlice(path_slice);
                         const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{full_image_path.items});
@@ -242,6 +241,8 @@ const Lexer = struct {
 
                         const font_style: FontStyle = if (std.mem.eql(u8, font_slice, "serif"))
                             .serif
+                        else if (std.mem.eql(u8, font_slice, "sans_serif"))
+                            .sans_serif
                         else if (std.mem.eql(u8, font_slice, "monospace"))
                             .monospace
                         else
@@ -276,12 +277,12 @@ pub const SectionType = union(enum) {
 
 pub const ElementAlignment = enum { center, right, left };
 
-pub const FontStyle = enum { serif, monospace };
+pub const FontStyle = enum { serif, sans_serif, monospace };
 
 pub const Section = struct {
-    text_size: usize = 32,
+    text_size: usize = 40,
     section_type: SectionType,
-    text_color: data.Color32 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
+    text_color: data.Color32 = @bitCast(@as(u32, 0x000000FF)),
     alignment: ElementAlignment = .left,
     image_scale: f32 = 1.0,
     line_spacing: f64 = 1.0,
@@ -289,7 +290,7 @@ pub const Section = struct {
 };
 
 pub const Slide = struct {
-    background_color: data.Color32 = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
+    background_color: data.Color32 = @bitCast(@as(u32, 0xFFFFFFFF)),
     sections: ArrayList(Section),
 
     const Self = @This();
@@ -304,6 +305,7 @@ pub const SlideShow = struct {
     slide_index: usize = 0,
     tracked_file: String,
     allocator: Allocator,
+    home_screen_loaded: bool = false,
 
     const Self = @This();
 
@@ -355,15 +357,21 @@ pub const SlideShow = struct {
         return std.fs.path.dirname(self.tracked_file.items).?; // the file path is always valid
     }
 
-    pub fn windowTitleAlloc(self: *const Self) !String {
+    pub fn fileIsTracked(self: *const Self) bool {
+        return self.tracked_file.items.len > 0;
+    }
+
+    fn windowTitleAlloc(self: *const Self) !String {
         var title = String.init(self.allocator);
         errdefer title.deinit();
         try title.appendSlice(win.default_title);
-        if (self.tracked_file.items.len != 0) {
-            try title.appendSlice(" | ");
-            try title.appendSlice(self.loadedFileName());
-        }
+
+        std.debug.assert(self.fileIsTracked());
+
+        try title.appendSlice(" | ");
+        try title.appendSlice(self.loadedFileName());
         try title.append(0); // null-termination needed
+
         return title;
     }
 
@@ -394,7 +402,7 @@ pub const SlideShow = struct {
         };
         defer file_contents.deinit();
 
-        self.parseSlideShow(file_contents.items, true) catch |e| {
+        self.parseSlideShow(file_contents.items) catch |e| {
             print("Error: {s}", .{@errorName(e)});
             print("\nUnable to parse slide show file: {s}\n", .{file_path});
             return;
@@ -403,8 +411,8 @@ pub const SlideShow = struct {
     }
 
     /// called during hot reloading
-    pub fn reloadSlides(self: *Self) void {
-        std.debug.assert(self.slides.items.len > 0 and self.tracked_file.items.len > 0); // assumes slides to be tracked
+    fn reloadSlides(self: *Self) void {
+        std.debug.assert(self.fileIsTracked());
         self.unloadSlides();
         self.loadSlides(self.tracked_file.items);
     }
@@ -431,7 +439,7 @@ pub const SlideShow = struct {
             print("Unloaded slide show file.\n", .{});
         }
         self.unloadSlides();
-        self.parseSlideShow(data.home_screen_slide, false) catch |e| {
+        self.parseSlideShow(data.home_screen_slide) catch |e| {
             print("Error: {s}\n", .{@errorName(e)});
         };
     }
@@ -447,10 +455,10 @@ pub const SlideShow = struct {
         slide.background_color = bg_color;
     }
 
-    fn parseSlideShow(self: *Self, file_contents: []const u8, file_sourced: bool) !void {
+    fn parseSlideShow(self: *Self, file_contents: []const u8) !void {
         errdefer self.unloadSlides();
 
-        const slide_file_dir = if (file_sourced) self.loadedFileDir() else "";
+        const slide_file_dir = if (self.fileIsTracked()) self.loadedFileDir() else null;
         var lexer = try Lexer.initWithInput(self.allocator, file_contents, slide_file_dir);
         defer lexer.deinit();
 
@@ -473,7 +481,7 @@ pub const SlideShow = struct {
                     }
                     try self.newSlide(&slide);
                 },
-                .centered => {
+                .center => {
                     section.alignment = .center;
                 },
                 .left => {

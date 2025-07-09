@@ -24,9 +24,7 @@ pub fn main() !void {
 
     if (args.next()) |file_path| {
         try state.slide_show.loadNewSlides(file_path, window);
-        if (args.skip()) {
-            @panic("You can only supply one additional command line argument with a file or zero.");
-        }
+        if (args.skip()) @panic("You can only supply one additional command line argument with a file or zero.");
     } else {
         state.slide_show.loadHomeScreenSlide(window);
     }

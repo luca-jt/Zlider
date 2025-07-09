@@ -3,7 +3,7 @@
 // text is left-aligned by default
 // default background color is 0xFFFFFFFF
 // default text color is 0x000000FF
-// default text size is 32
+// default text size is 40
 // default font is serif
 
 // The text size is always relative to a 1080p screen. This is done to retain spacing and scaling when displaying on larger (or smaller) screens.
@@ -13,11 +13,8 @@ text
 This is a test slide that displays text and an image with some spacing in between.
 text
 
-// insert a number of line spacings
-space 2
-
 // include an image (path is relative to the slide show file)
-image test1.png
+image test.png
 
 // Inserting images, spacings, and text creates a new context section. You can define formatting etc. for them before inserting the content. Inserted content always uses the last value defined for a formatting option.
 
@@ -29,6 +26,8 @@ slide // declare a new slide like this
 
 // set the background color for the entire slide
 bg 0x2C2E34FF
+
+font sans_serif // set the font
 
 // set the text color
 text_color 0xFC5D7CFF
@@ -48,9 +47,10 @@ Empty lines are ignored.
 
 text
 
+// insert a number of line spacings
 space 1
 
-text_size 22
+text_size 30
 font monospace
 right // set the content alignment
 
@@ -61,7 +61,7 @@ text
 // All the formatting parameters can be re-defined multiple times per slide for different sections.
 // Every time you declare some content to be inserted (like text or images) the formatting previously defined is used.
 
-centered
+center
 image_scale 0.5 // scales images by a certain factor
 
-image ./../example/test2.png // more complicated paths are resolved
+image ./../example/test.png // more complicated paths are resolved

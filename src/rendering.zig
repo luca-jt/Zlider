@@ -217,6 +217,7 @@ pub const Renderer = struct {
     view: lina.Mat4 = lina.Mat4.lookAt(lina.vec3(0.5 * win.viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * win.viewport_ratio, -0.5, 0.0), lina.Vec3.unitY),
     images: StringHashMap(ImageData),
     serif_font_data: FontData,
+    sans_serif_font_data: FontData,
     monospace_font_data: FontData,
     file_drop_image: ?ImageData = null,
     allocator: Allocator,
@@ -241,6 +242,7 @@ pub const Renderer = struct {
             .max_num_meshes = max_num_meshes,
             .images = StringHashMap(ImageData).init(allocator),
             .serif_font_data = try FontData.init(allocator, data.serif_font),
+            .sans_serif_font_data = try FontData.init(allocator, data.sans_serif_font),
             .monospace_font_data = try FontData.init(allocator, data.monospace_font),
             .allocator = allocator,
         };
@@ -306,6 +308,7 @@ pub const Renderer = struct {
         }
 
         self.serif_font_data.deinit();
+        self.sans_serif_font_data.deinit();
         self.monospace_font_data.deinit();
     }
 
@@ -322,6 +325,7 @@ pub const Renderer = struct {
         }
 
         self.serif_font_data.clear();
+        self.sans_serif_font_data.clear();
         self.monospace_font_data.clear();
     }
 
@@ -365,6 +369,7 @@ pub const Renderer = struct {
                     .text => {
                         const font_data = switch (section.font_style) {
                             .serif => &self.serif_font_data,
+                            .sans_serif => &self.sans_serif_font_data,
                             .monospace => &self.monospace_font_data,
                         };
                         font_data.loadFont(section.text_size);
@@ -386,6 +391,7 @@ pub const Renderer = struct {
         for (slide.sections.items) |*section| {
             const font_data = switch (section.font_style) {
                 .serif => &self.serif_font_data,
+                .sans_serif => &self.sans_serif_font_data,
                 .monospace => &self.monospace_font_data,
             };
             const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent);

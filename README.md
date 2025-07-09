@@ -18,8 +18,8 @@ Here is a complete list:
 | text_color | Defines the text color to be used with a hex value. |
 | text_size | Defines the text size to be used. |
 | line_spacing | Defines the line spacing factor to be used. |
-| font | Changes the used font. Choices are: "serif", "monospace". |
-| centered | Alignment specifier that centers all contents. |
+| font | Changes the used font. Choices are: "serif", "sans_serif", "monospace". |
+| center | Alignment specifier that centers all contents. |
 | left | Alignment specifier that left-aligns all contents. |
 | right | Alignment specifier that right-aligns all contents. |
 | slide | Seperator between slides. |

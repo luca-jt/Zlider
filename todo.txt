@@ -1,4 +1,5 @@
 slide file hot reloading
-auto line breaking, slide side ratio, layers, colored areas on slides
+layers, colored areas on slides
 fallthrough slides to enable basic animations
-no black edges one home screen
+auto line breaking
+no black edges one home screen + slide side ratio

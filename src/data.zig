@@ -124,7 +124,8 @@ pub const plane_uvs = [4]lina.Vec2{
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
 
 pub const serif_font: [:0]const u8 = @embedFile("baked/DMSerifText-Regular.ttf");
-pub const monospace_font: [:0]const u8 = @embedFile("baked/Iosevka-Light.ttf");
+pub const sans_serif_font: [:0]const u8 = @embedFile("baked/Roboto-Light.ttf");
+pub const monospace_font: [:0]const u8 = @embedFile("baked/SourceCodePro-Regular.ttf");
 pub const first_char: c_int = 32;
 pub const glyph_count: c_int = 255 - first_char;
 
@@ -134,15 +135,16 @@ pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080
 pub const file_drop_image: [:0]const u8 = @embedFile("baked/file_drop.png");
 
 pub const home_screen_slide: [:0]const u8 =
-    \\centered
+    \\center
     \\text_color 0xF6A319FF
     \\bg 0x2C2E34FF
     \\text_size 10
     \\image_scale 0.2
+    \\line_spacing 0.8
     \\
-    \\space 10
+    \\space 6
     \\
-    \\text_size 300
+    \\text_size 400
     \\
     \\text
     \\Zlider
@@ -156,8 +158,7 @@ pub const home_screen_slide: [:0]const u8 =
     \\Drag and drop a slide show file to load.
     \\text
     \\
-    \\text_size 10
-    \\space 1
+    \\space 2
     \\
     \\file_drop_image
 ;
