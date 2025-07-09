@@ -14,7 +14,7 @@ pub fn main() !void {
     state.slide_show = try slides.SlideShow.init(allocator);
     defer state.slide_show.deinit();
 
-    const window = win.initWindow(800, 450, win.default_title);
+    const window = win.initWindow(800, 450);
     defer win.closeWindow(window);
     win.setEventConfig(window);
     c.stbi_flip_vertically_on_write(1);
@@ -24,12 +24,13 @@ pub fn main() !void {
 
     if (args.next()) |file_path| {
         try state.slide_show.loadNewSlides(file_path, window);
-        state.renderer.loadSlideData(&state.slide_show);
-
         if (args.skip()) {
             @panic("You can only supply one additional command line argument with a file or zero.");
         }
+    } else {
+        state.slide_show.loadHomeScreenSlide(window);
     }
+    state.renderer.loadSlideData(&state.slide_show);
 
     while (c.glfwWindowShouldClose(window) == c.GL_FALSE) {
         try win.handleInput(window, allocator);

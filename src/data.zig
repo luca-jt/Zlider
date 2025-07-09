@@ -3,11 +3,11 @@ pub const String = std.ArrayList(u8);
 const c = @import("c.zig");
 const lina = @import("linalg.zig");
 
-pub const Color32 = struct {
-    r: u8 = 0,
-    g: u8 = 0,
-    b: u8 = 0,
+pub const Color32 = packed struct {
     a: u8 = 0,
+    b: u8 = 0,
+    g: u8 = 0,
+    r: u8 = 0,
 
     const Self = @This();
 
@@ -30,15 +30,9 @@ pub const Color32 = struct {
 
     pub fn fromHex(hex: []const u8) ?Color32 {
         const number = std.fmt.parseInt(u32, hex, 0) catch return null;
-        const r: u8 = @intCast((number & 0xFF000000) >> 24);
-        const g: u8 = @intCast((number & 0x00FF0000) >> 16);
-        const b: u8 = @intCast((number & 0x0000FF00) >> 8);
-        const a: u8 = @intCast((number & 0x000000FF));
-        return .{ .r = r, .g = g, .b = b, .a = a };
+        return @bitCast(number);
     }
 };
-
-pub const clear_color = Color32.new(44, 46, 52, 255);
 
 pub const SplitIterator = struct {
     next_part_start: usize = 0,
@@ -140,26 +134,30 @@ pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080
 pub const file_drop_image: [:0]const u8 = @embedFile("baked/file_drop.png");
 
 pub const home_screen_slide: [:0]const u8 =
-    \\\centered
-    \\\text_color 0xF6A319FF
-    \\\bg 0x2C2E34FF
-    \\\text_size 10
-    \\\
-    \\\space 10
-    \\\
-    \\\text_size 300
-    \\\
-    \\\text
-    \\\Zlider
-    \\\text
-    \\\
-    \\\text_color 0xE2E2E3FF
-    \\\text_size 30
-    \\\font monospace
-    \\\
-    \\\text
-    \\\Drag and drop a slide show file to load.
-    \\\text
-    \\\
-    \\\file_drop_image
+    \\centered
+    \\text_color 0xF6A319FF
+    \\bg 0x2C2E34FF
+    \\text_size 10
+    \\image_scale 0.2
+    \\
+    \\space 10
+    \\
+    \\text_size 300
+    \\
+    \\text
+    \\Zlider
+    \\text
+    \\
+    \\text_color 0xE2E2E3FF
+    \\text_size 30
+    \\font monospace
+    \\
+    \\text
+    \\Drag and drop a slide show file to load.
+    \\text
+    \\
+    \\text_size 10
+    \\space 1
+    \\
+    \\file_drop_image
 ;

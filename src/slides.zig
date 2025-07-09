@@ -21,9 +21,10 @@ pub const Keyword = enum(usize) {
     image_scale = 10,
     line_spacing = 11,
     font = 12,
+    file_drop_image = 13,
 };
 
-pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image", "image_scale", "line_spacing", "font" };
+pub const reserved_names = [_][]const u8{ "text_color", "bg", "slide", "centered", "left", "right", "text", "space", "text_size", "image", "image_scale", "line_spacing", "font", "file_drop_image" };
 
 pub const Token = union(enum) {
     text_color: data.Color32,
@@ -39,6 +40,7 @@ pub const Token = union(enum) {
     image_scale: f32,
     line_spacing: f64,
     font_style: FontStyle,
+    file_drop_image,
 };
 
 fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
@@ -63,7 +65,7 @@ const Lexer = struct {
     file_dir: []const u8, // where the slide show file lives (canonical)
     line: usize = 1,
     buffer: String,
-    input: []const u8,
+    input: [*:0]const u8,
     ptr: usize = 0,
     allocator: Allocator,
 
@@ -74,7 +76,7 @@ const Lexer = struct {
             .file_dir = file_dir,
             .buffer = try String.initCapacity(allocator, input.len), // the buffer is sure to only ever contain the entire input at most, so this enables us to minimize allocations
             .allocator = allocator,
-            .input = input,
+            .input = @ptrCast(input), // null-termination is guarantied
         };
     }
 
@@ -202,6 +204,8 @@ const Lexer = struct {
                         break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
+                        if (self.file_dir.len == 0) return error.ImageInInternalSource;
+
                         const path_slice = self.readNextWord();
                         var full_image_path = String.init(self.allocator);
                         defer full_image_path.deinit();
@@ -245,6 +249,7 @@ const Lexer = struct {
 
                         break :blk .{ .font_style = font_style };
                     },
+                    .file_drop_image => .file_drop_image,
                 };
                 break;
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
@@ -258,12 +263,16 @@ const Lexer = struct {
     }
 };
 
-pub const SectionData = union {
-    lines: usize,
-    text: String,
+pub const ImageSource = union(enum) {
+    path: String,
+    file_drop_image,
 };
 
-pub const SectionType = enum { space, text, image };
+pub const SectionType = union(enum) {
+    space: usize,
+    text: String,
+    image: ImageSource,
+};
 
 pub const ElementAlignment = enum { center, right, left };
 
@@ -272,7 +281,6 @@ pub const FontStyle = enum { serif, monospace };
 pub const Section = struct {
     text_size: usize = 32,
     section_type: SectionType,
-    data: SectionData,
     text_color: data.Color32 = .{ .r = 0, .g = 0, .b = 0, .a = 255 },
     alignment: ElementAlignment = .left,
     image_scale: f32 = 1.0,
@@ -311,7 +319,13 @@ pub const SlideShow = struct {
         for (self.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
                 switch (section.section_type) {
-                    .image, .text => section.data.text.deinit(),
+                    .image => |image_source| {
+                        switch (image_source) {
+                            .path => |path| path.deinit(),
+                            .file_drop_image => {},
+                        }
+                    },
+                    .text => |text| text.deinit(),
                     else => {},
                 }
             }
@@ -353,11 +367,17 @@ pub const SlideShow = struct {
         return title;
     }
 
-    pub fn unloadSlides(self: *Self) void {
+    fn unloadSlides(self: *Self) void {
         for (self.slides.items) |*slide| {
             for (slide.sections.items) |section| {
                 switch (section.section_type) {
-                    .image, .text => section.data.text.deinit(),
+                    .image => |image_source| {
+                        switch (image_source) {
+                            .path => |path| path.deinit(),
+                            .file_drop_image => {},
+                        }
+                    },
+                    .text => |text| text.deinit(),
                     else => {},
                 }
             }
@@ -374,7 +394,7 @@ pub const SlideShow = struct {
         };
         defer file_contents.deinit();
 
-        self.parseSlideShow(file_contents.items) catch |e| {
+        self.parseSlideShow(file_contents.items, true) catch |e| {
             print("Error: {s}", .{@errorName(e)});
             print("\nUnable to parse slide show file: {s}\n", .{file_path});
             return;
@@ -403,11 +423,21 @@ pub const SlideShow = struct {
         c.glfwSetWindowTitle(window, @ptrCast(new_title.items));
     }
 
-    pub fn currentSlide(self: *const Self) ?*Slide {
-        return if (self.slides.items.len == 0)
-            null
-        else
-            &self.slides.items[self.slide_index];
+    pub fn loadHomeScreenSlide(self: *Self, window: ?*c.GLFWwindow) void {
+        const file_tracked = self.tracked_file.items.len > 0;
+        if (file_tracked) {
+            self.tracked_file.clearRetainingCapacity();
+            c.glfwSetWindowTitle(window, win.default_title);
+            print("Unloaded slide show file.\n", .{});
+        }
+        self.unloadSlides();
+        self.parseSlideShow(data.home_screen_slide, false) catch |e| {
+            print("Error: {s}\n", .{@errorName(e)});
+        };
+    }
+
+    pub fn currentSlide(self: *const Self) *Slide {
+        return &self.slides.items[self.slide_index];
     }
 
     fn newSlide(self: *Self, slide: *Slide) !void {
@@ -417,16 +447,16 @@ pub const SlideShow = struct {
         slide.background_color = bg_color;
     }
 
-    fn parseSlideShow(self: *Self, file_contents: []const u8) !void {
+    fn parseSlideShow(self: *Self, file_contents: []const u8, file_sourced: bool) !void {
         errdefer self.unloadSlides();
 
-        const slide_file_dir = self.loadedFileDir();
+        const slide_file_dir = if (file_sourced) self.loadedFileDir() else "";
         var lexer = try Lexer.initWithInput(self.allocator, file_contents, slide_file_dir);
         defer lexer.deinit();
 
         var slide = Slide.init(self.allocator);
         errdefer slide.sections.deinit();
-        var section = Section{ .section_type = undefined, .data = undefined };
+        var section = Section{ .section_type = undefined };
 
         while (try lexer.nextToken()) |token| {
             switch (token) {
@@ -453,22 +483,19 @@ pub const SlideShow = struct {
                     section.alignment = .right;
                 },
                 .text => |string| {
-                    section.section_type = .text;
-                    section.data = .{ .text = string };
+                    section.section_type = .{ .text = string };
                     try newSection(&slide, &section);
                 },
-                .space => |number| {
-                    section.section_type = .space;
-                    section.data = .{ .lines = number };
+                .space => |lines| {
+                    section.section_type = .{ .space = lines };
                     try newSection(&slide, &section);
                 },
                 .text_size => |number| {
                     section.text_size = number;
                 },
-                .image => |path| {
-                    section.section_type = .image;
-                    section.data = .{ .text = path };
-                    try section.data.text.append(0); // for c interop later on
+                .image => |*path| {
+                    section.section_type = .{ .image = .{ .path = path.* } };
+                    try section.section_type.image.path.append(0); // for c interop later on
                     try newSection(&slide, &section);
                 },
                 .image_scale => |scale| {
@@ -479,6 +506,10 @@ pub const SlideShow = struct {
                 },
                 .font_style => |style| {
                     section.font_style = style;
+                },
+                .file_drop_image => {
+                    section.section_type = .{ .image = .file_drop_image };
+                    try newSection(&slide, &section);
                 },
             }
         }
@@ -504,7 +535,7 @@ fn newSection(slide: *Slide, section: *Section) !void {
 
     try slide.sections.append(section.*);
 
-    section.* = Section{ .section_type = undefined, .data = undefined };
+    section.* = Section{ .section_type = undefined };
     section.text_size = text_size;
     section.text_color = text_color;
     section.alignment = alignment;

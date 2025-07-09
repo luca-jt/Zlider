@@ -36,7 +36,7 @@ fn resizeViewport(width: c_int, height: c_int) void {
     c.glScissor(vp_x, vp_y, w, h);
 }
 
-pub fn initWindow(width: c_int, height: c_int, title: [:0]const u8) *c.GLFWwindow {
+pub fn initWindow(width: c_int, height: c_int) *c.GLFWwindow {
     if (c.glfwInit() == c.GL_FALSE) {
         @panic("Failed to initialize GLFW.");
     }
@@ -49,7 +49,7 @@ pub fn initWindow(width: c_int, height: c_int, title: [:0]const u8) *c.GLFWwindo
         c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, c.GL_TRUE);
     }
 
-    const window = c.glfwCreateWindow(width, height, title, null, null) orelse @panic("Failed to create GLFW window.");
+    const window = c.glfwCreateWindow(width, height, default_title, null, null) orelse @panic("Failed to create GLFW window.");
 
     c.glfwMakeContextCurrent(window);
     c.glfwSetWindowSizeLimits(window, 100, 100, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
@@ -183,14 +183,9 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
     }
     // unload the slides
     if (keyIsPressed(window, c.GLFW_KEY_C)) {
-        state.slide_show.unloadSlides();
         state.renderer.clear();
-        const file_was_tracked = state.slide_show.tracked_file.items.len > 0;
-        if (file_was_tracked) {
-            state.slide_show.tracked_file.clearRetainingCapacity();
-            c.glfwSetWindowTitle(window, default_title);
-            print("Unloaded slide show file.\n", .{});
-        }
+        state.slide_show.loadHomeScreenSlide(window);
+        state.renderer.loadSlideData(&state.slide_show);
     }
     // dump the slides to png
     if (keyIsPressed(window, c.GLFW_KEY_I)) {

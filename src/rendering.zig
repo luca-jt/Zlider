@@ -218,6 +218,7 @@ pub const Renderer = struct {
     images: StringHashMap(ImageData),
     serif_font_data: FontData,
     monospace_font_data: FontData,
+    file_drop_image: ?ImageData = null,
     allocator: Allocator,
 
     const Self = @This();
@@ -299,6 +300,11 @@ pub const Renderer = struct {
             c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.deinit();
+        if (self.file_drop_image) |*image_data| {
+            c.glDeleteTextures(1, &image_data.texture);
+            self.file_drop_image = null;
+        }
+
         self.serif_font_data.deinit();
         self.monospace_font_data.deinit();
     }
@@ -310,6 +316,10 @@ pub const Renderer = struct {
             c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.clearRetainingCapacity();
+        if (self.file_drop_image) |*image_data| {
+            c.glDeleteTextures(1, &image_data.texture);
+            self.file_drop_image = null;
+        }
 
         self.serif_font_data.clear();
         self.monospace_font_data.clear();
@@ -319,18 +329,38 @@ pub const Renderer = struct {
         for (slide_show.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
                 switch (section.section_type) {
-                    .image => {
-                        if (self.images.contains(section.data.text.items)) continue;
+                    .image => |image_source| {
+                        switch (image_source) {
+                            .path => |*path| {
+                                if (self.images.contains(path.items)) continue;
 
-                        var width: c_int = undefined;
-                        var height: c_int = undefined;
-                        var num_channels: c_int = undefined;
-                        const image = c.stbi_load(@ptrCast(section.data.text.items), &width, &height, &num_channels, 4);
+                                var width: c_int = undefined;
+                                var height: c_int = undefined;
+                                var num_channels: c_int = undefined;
+                                const desired_channels: c_int = 4;
+                                const image = c.stbi_load(@ptrCast(path.items), &width, &height, &num_channels, desired_channels);
+                                std.debug.assert(num_channels == desired_channels);
 
-                        const tex_id = generateTexture(image, width, height);
-                        c.stbi_image_free(image);
-                        const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
-                        self.images.put(section.data.text.items, image_data) catch @panic("allocation error");
+                                const tex_id = generateTexture(image, width, height);
+                                c.stbi_image_free(image);
+                                const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
+                                self.images.put(path.items, image_data) catch @panic("allocation error");
+                            },
+                            .file_drop_image => {
+                                if (self.file_drop_image != null) continue;
+
+                                var width: c_int = undefined;
+                                var height: c_int = undefined;
+                                var num_channels: c_int = undefined;
+                                const desired_channels: c_int = 4;
+                                const image = c.stbi_load_from_memory(@ptrCast(data.file_drop_image), data.file_drop_image.len, &width, &height, &num_channels, desired_channels);
+                                std.debug.assert(num_channels == desired_channels);
+
+                                const tex_id = generateTexture(image, width, height);
+                                c.stbi_image_free(image);
+                                self.file_drop_image = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
+                            },
+                        }
                     },
                     .text => {
                         const font_data = switch (section.font_style) {
@@ -346,12 +376,7 @@ pub const Renderer = struct {
     }
 
     pub fn render(self: *Self, slide_show: *SlideShow) !void {
-        const current_slide = slide_show.currentSlide();
-        if (current_slide == null) {
-            clearScreen(data.clear_color);
-            return;
-        }
-        const slide = current_slide.?;
+        const slide = slide_show.currentSlide();
         clearScreen(slide.background_color);
 
         const min_x_start: f64 = 10; // in pixels
@@ -373,13 +398,13 @@ pub const Renderer = struct {
             const yadvance = yadvance_font * font_scale * font_display_scale; // this is the specific yadvance accounting for font sizes
 
             switch (section.section_type) {
-                .space => {
-                    cursor_y += yadvance * @as(f64, @floatFromInt(section.data.lines));
+                .space => |lines| {
+                    cursor_y += yadvance * @as(f64, @floatFromInt(lines));
                 },
-                .text => {
+                .text => |text| {
                     const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
                     const tex_id: c.GLuint = font_storage.texture;
-                    var line_iterator = data.SplitIterator{ .string = section.data.text.items, .delimiter = '\n' };
+                    var line_iterator = data.SplitIterator{ .string = text.items, .delimiter = '\n' };
 
                     while (line_iterator.next()) |line| {
                         // check line width and determine cursor start for alignment
@@ -432,8 +457,11 @@ pub const Renderer = struct {
                     }
                     cursor_y += yadvance;
                 },
-                .image => {
-                    const image_data = self.images.get(section.data.text.items).?;
+                .image => |image_source| {
+                    const image_data = switch (image_source) {
+                        .path => |*path| self.images.get(path.items).?,
+                        .file_drop_image => self.file_drop_image.?,
+                    };
                     cursor_x = switch (section.alignment) {
                         .center => (data.viewport_resolution_reference[0] - @as(f64, @floatFromInt(image_data.width)) * section.image_scale) / 2,
                         .right => data.viewport_resolution_reference[0] - @as(f64, @floatFromInt(image_data.width)) * section.image_scale - min_x_start,
