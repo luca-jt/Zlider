@@ -60,6 +60,37 @@ pub const SplitIterator = struct {
         self.next_part_start = if (parts_left) end + 1 else end;
         return line;
     }
+
+    pub fn isEmpty(self: *const Self) bool {
+        return self.next_part_start >= self.string.len;
+    }
+
+    pub fn peek(self: *const Self) ?[]const u8 {
+        const start = self.next_part_start;
+        var end = start;
+
+        for (self.string[start..]) |char| {
+            if (char == self.delimiter) break;
+            end += 1;
+        } else {
+            if (end == start) return null;
+        }
+
+        return self.string[start..end];
+    }
+
+    /// advances the iterator once and returns wether or not an element was skipped
+    pub fn advance(self: *Self) bool {
+        if (self.isEmpty()) return false;
+
+        while (!self.isEmpty()) {
+            if (self.string[self.next_part_start] == self.delimiter) break;
+            self.next_part_start += 1;
+        }
+        if (!self.isEmpty()) self.next_part_start += 1; // skip the delimiter
+
+        return true;
+    }
 };
 
 pub const vertex_shader: [*:0]const u8 =
@@ -124,7 +155,7 @@ pub const plane_uvs = [4]lina.Vec2{
 pub const plane_indices = [6]c.GLuint{ 0, 1, 2, 0, 3, 1 };
 
 pub const serif_font: [:0]const u8 = @embedFile("baked/DMSerifText-Regular.ttf");
-pub const sans_serif_font: [:0]const u8 = @embedFile("baked/Roboto-Light.ttf");
+pub const sans_serif_font: [:0]const u8 = @embedFile("baked/Roboto-Regular.ttf");
 pub const monospace_font: [:0]const u8 = @embedFile("baked/SourceCodePro-Regular.ttf");
 pub const first_char: c_int = 32;
 pub const glyph_count: c_int = 255 - first_char;

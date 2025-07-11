@@ -13,6 +13,9 @@ text
 This is a test slide that displays text and an image with some spacing in between.
 text
 
+// insert a number of line spacings
+space 1
+
 // include an image (path is relative to the slide show file)
 image test.png
 
@@ -47,7 +50,6 @@ Empty lines are ignored.
 
 text
 
-// insert a number of line spacings
 space 1
 
 text_size 30
@@ -65,3 +67,24 @@ center
 image_scale 0.5 // scales images by a certain factor
 
 image ./../example/test.png // more complicated paths are resolved
+
+
+
+slide
+
+font sans_serif
+text_size 40
+left
+line_spacing 1.0
+bg 0x000000FF
+text_color 0xFFFFFFFF
+
+
+text
+This is a very long line that demonstrates automatic line breaking for all the formatting cases. It is longer than the width of one slide. The line breaking happens between full words only. Block text is not currently supported.
+A line break works as you would think.
+text
+
+text
+This is another text segement that should be positioned right under the previous text without additional space in between.
+text

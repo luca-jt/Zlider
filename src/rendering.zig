@@ -410,58 +410,79 @@ pub const Renderer = struct {
                 .text => |text| {
                     const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
                     const tex_id: c.GLuint = font_storage.texture;
+                    const space_width = charFontWidth(' ', &font_storage, font_display_scale);
                     var line_iterator = data.SplitIterator{ .string = text.items, .delimiter = '\n' };
 
                     while (line_iterator.next()) |line| {
-                        // check line width and determine cursor start for alignment
-                        var line_width: f64 = 0;
-                        for (line) |char| {
-                            const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
-                            line_width += baked_char.xadvance * font_display_scale;
-                        }
-                        cursor_x = switch (section.alignment) {
-                            .center => (data.viewport_resolution_reference[0] - line_width) / 2,
-                            .right => data.viewport_resolution_reference[0] - line_width - min_x_start,
-                            .left => min_x_start,
-                        };
+                        // check line width that fits and determine cursor start for alignment
+                        var word_iterator = data.SplitIterator{ .string = line, .delimiter = ' ' };
+                        var line_to_render_start: usize = 0;
 
-                        for (line) |char| {
-                            const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
-                            // lines don't contain the trailing new-line character
-                            switch (char) {
-                                ' ' => {
-                                    cursor_x += baked_char.xadvance * font_display_scale;
-                                },
-                                else => {
-                                    const x_pos = (cursor_x + baked_char.xoff * font_display_scale) * inverse_viewport_height;
-                                    const y_pos = (cursor_y - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
-                                    // the switch of the sign of the y-offset is done to keep the way projections are done
+                        // we do the entire render process until there are no more auto-line-breaks to resolve
+                        while (!word_iterator.isEmpty()) {
 
-                                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+                            const first_word = word_iterator.next().?; // there is always at least one word in a line
+                            var line_width: f64 = sliceFontWidth(first_word, &font_storage, font_display_scale);
+                            var line_to_render_len: usize = first_word.len;
 
-                                    // the baked char data used does not require scaling because it would just cancel out
-                                    const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
-                                    const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_display_scale));
-                                    const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
+                            while (word_iterator.peek()) |word| {
+                                const additional_width = space_width + sliceFontWidth(word, &font_storage, font_display_scale);
 
-                                    const font_texture_side_pixel_size: f32 = @floatFromInt(font_storage.texture_side_size);
-                                    const u_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
-                                    const v_0 = @as(f32, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
-                                    const u_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
-                                    const v_1 = @as(f32, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
-                                    const uvs = [data.plane_uvs.len]lina.Vec2{ lina.vec2(u_0, v_1), lina.vec2(u_1, v_0), lina.vec2(u_0, v_0), lina.vec2(u_1, v_1) };
+                                // We don't know wether or not the line fits on the whole screen.
+                                // If we encounter a word that won't fit, we render the stuff that does and go to the next line while skipping the space in between.
+                                if (line_width + additional_width > data.viewport_resolution_reference[0] - 2 * @as(usize, @intFromFloat(min_x_start))) break;
 
-                                    if (!try self.addFontQuad(trafo, tex_id, &uvs, section.text_color)) {
-                                        self.flush();
-                                        std.debug.assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
-                                    }
-                                    cursor_x += baked_char.xadvance * font_display_scale;
-                                },
+                                line_width += additional_width;
+                                line_to_render_len += 1 + word.len; // don't forget the space
+                                std.debug.assert(word_iterator.advance()); // we peeked successfully
                             }
+
+                            const line_to_render = line[line_to_render_start..line_to_render_start + line_to_render_len];
+                            line_to_render_start += line_to_render_len + 1; // advance the start of the rest of the line to render for the next iteration (the +1 is for the space that didn't get rendered)
+
+                            cursor_x = switch (section.alignment) {
+                                .center => (data.viewport_resolution_reference[0] - line_width) / 2,
+                                .right => data.viewport_resolution_reference[0] - line_width - min_x_start,
+                                .left => min_x_start,
+                            };
+
+                            for (line_to_render) |char| {
+                                const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
+                                // lines don't contain the trailing new-line character
+                                switch (char) {
+                                    ' ' => {
+                                        cursor_x += baked_char.xadvance * font_display_scale;
+                                    },
+                                    else => {
+                                        const x_pos = (cursor_x + baked_char.xoff * font_display_scale) * inverse_viewport_height;
+                                        const y_pos = (cursor_y - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
+                                        // the switch of the sign of the y-offset is done to keep the way projections are done
+
+                                        const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+
+                                        // the baked char data used does not require scaling because it would just cancel out
+                                        const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
+                                        const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_display_scale));
+                                        const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
+
+                                        const font_texture_side_pixel_size: f32 = @floatFromInt(font_storage.texture_side_size);
+                                        const u_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
+                                        const v_0 = @as(f32, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
+                                        const u_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
+                                        const v_1 = @as(f32, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
+                                        const uvs = [data.plane_uvs.len]lina.Vec2{ lina.vec2(u_0, v_1), lina.vec2(u_1, v_0), lina.vec2(u_0, v_0), lina.vec2(u_1, v_1) };
+
+                                        if (!try self.addFontQuad(trafo, tex_id, &uvs, section.text_color)) {
+                                            self.flush();
+                                            std.debug.assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
+                                        }
+                                        cursor_x += baked_char.xadvance * font_display_scale;
+                                    },
+                                }
+                            }
+                            cursor_y += yadvance;
                         }
-                        cursor_y += yadvance;
                     }
-                    cursor_y += yadvance;
                 },
                 .image => |image_source| {
                     const image_data = switch (image_source) {
@@ -493,6 +514,20 @@ pub const Renderer = struct {
             }
         }
         self.flush();
+    }
+
+    /// computes the width of a slice of characters for some font
+    fn sliceFontWidth(slice: []const u8, font_storage: *const FontStorage, font_display_scale: f64) f64 {
+        var width: f64 = 0;
+        for (slice) |char| {
+            width += charFontWidth(char, font_storage, font_display_scale);
+        }
+        return width;
+    }
+
+    fn charFontWidth(char: u8, font_storage: *const FontStorage, font_display_scale: f64) f64 {
+        const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
+        return baked_char.xadvance * font_display_scale;
     }
 
     fn flush(self: *Self) void {
@@ -628,7 +663,7 @@ pub const Renderer = struct {
 
     fn resizeBuffer(self: *Self) !void {
         self.max_num_meshes *= 2;
-        try self.obj_buffer.ensureTotalCapacity(self.max_num_meshes);
+        try self.obj_buffer.ensureTotalCapacity(self.max_num_meshes * data.plane_vertices.len);
 
         c.glBindBuffer(c.GL_ARRAY_BUFFER, self.vbo);
         c.glBufferData(
