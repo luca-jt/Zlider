@@ -420,7 +420,7 @@ pub const Renderer = struct {
 
                         // we do the entire render process until there are no more auto-line-breaks to resolve
                         // this while loop runs once for every rendered line (might be forced by auto-line-breaks)
-                        while (word_iterator.next()) |first_word| {
+                        while (word_iterator.next()) |first_word| : (cursor_y += yadvance) {
                             // there is always at least one word in a line
 
                             var line_width: f64 = sliceFontWidth(first_word, &font_storage, font_display_scale);
@@ -481,7 +481,6 @@ pub const Renderer = struct {
                                     },
                                 }
                             }
-                            cursor_y += yadvance;
                         }
                     }
                 },
