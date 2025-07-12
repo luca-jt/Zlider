@@ -27,7 +27,7 @@ pub const Keyword = enum(usize) {
 pub const Token = union(enum) {
     text_color: data.Color32,
     bg: data.Color32,
-    slide,
+    slide: bool, // wether or not the slide is a fallthrough slide
     center,
     left,
     right,
@@ -58,6 +58,7 @@ pub const SlidesParseError = error {
     EmptySlide,
     TooManySlides,
     InvalidFile,
+    ImageInInternalSource,
 };
 
 const Lexer = struct {
@@ -120,6 +121,18 @@ const Lexer = struct {
         return self.buffer.items;
     }
 
+    fn peekNextWord(self: *Self) []const u8 {
+        self.buffer.clearRetainingCapacity();
+        self.skipWhiteSpace();
+        const old_ptr = self.ptr;
+
+        while (self.head() != 0 and self.head() != ' ' and self.head() != '\t' and self.head() != '\n') {
+            self.readChar();
+        }
+        self.ptr = old_ptr;
+        return self.buffer.items;
+    }
+
     fn readUntilNewLine(self: *Self) []const u8 {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
@@ -165,7 +178,14 @@ const Lexer = struct {
                             return SlidesParseError.LexerInvalidToken;
                         }
                     },
-                    .slide => .slide,
+                    .slide => blk: {
+                        const potential_fallthrough = self.peekNextWord();
+                        const is_fallthrough = std.mem.eql(u8, potential_fallthrough, "fallthrough");
+                        if (is_fallthrough) {
+                            _ = self.readNextWord();
+                        }
+                        break :blk .{ .slide = is_fallthrough };
+                    },
                     .center => .center,
                     .left => .left,
                     .right => .right,
@@ -203,7 +223,10 @@ const Lexer = struct {
                         break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
-                        if (self.file_dir == null) return error.ImageInInternalSource;
+                        if (self.file_dir == null) {
+                            print("Line {}: | ", .{ self.line });
+                            return SlidesParseError.ImageInInternalSource;
+                        }
 
                         const path_slice = self.readNextWord();
                         var full_image_path = String.init(self.allocator);
@@ -267,6 +290,17 @@ const Lexer = struct {
 pub const ImageSource = union(enum) {
     path: String,
     file_drop_image,
+
+    const Self = @This();
+
+    fn clone(self: Self) !ImageSource {
+        switch (self) {
+            .path => |path| {
+                return .{ .path = try path.clone() };
+            },
+            .file_drop_image => return .file_drop_image,
+        }
+    }
 };
 
 pub const SectionType = union(enum) {
@@ -287,16 +321,42 @@ pub const Section = struct {
     image_scale: f32 = 1.0,
     line_spacing: f64 = 1.0,
     font_style: FontStyle = .serif,
+
+    const Self = @This();
+
+    fn clone(self: *const Self) !Section {
+        var copy = self.*;
+        switch (copy.section_type) {
+            .space => {},
+            .text => |*text| {
+                text.* = try text.clone();
+            },
+            .image => |*image_source| {
+                image_source.* = try image_source.clone();
+            },
+        }
+        return copy;
+    }
 };
 
 pub const Slide = struct {
     background_color: data.Color32 = @bitCast(@as(u32, 0xFFFFFFFF)),
+    has_fallthrough_successor: bool = false,
     sections: ArrayList(Section),
 
     const Self = @This();
 
     fn init(allocator: Allocator) Self {
         return .{ .sections = ArrayList(Section).init(allocator) };
+    }
+
+    fn clone(self: *const Self) !Slide {
+        var copy = self.*;
+        copy.sections = try self.sections.clone();
+        for (copy.sections.items) |*section| {
+            section.* = try section.clone();
+        }
+        return copy;
     }
 };
 
@@ -377,7 +437,7 @@ pub const SlideShow = struct {
 
     fn unloadSlides(self: *Self) void {
         for (self.slides.items) |*slide| {
-            for (slide.sections.items) |section| {
+            for (slide.sections.items) |*section| {
                 switch (section.section_type) {
                     .image => |image_source| {
                         switch (image_source) {
@@ -448,10 +508,17 @@ pub const SlideShow = struct {
         return &self.slides.items[self.slide_index];
     }
 
-    fn newSlide(self: *Self, slide: *Slide) !void {
+    fn newSlide(self: *Self, slide: *Slide, is_fallthrough: bool) !void {
         const bg_color = slide.background_color;
-        try self.slides.append(slide.*);
-        slide.* = Slide.init(self.allocator);
+        if (is_fallthrough) {
+            const slide_clone = try slide.clone();
+            slide.has_fallthrough_successor = true;
+            try self.slides.append(slide.*);
+            slide.* = slide_clone;
+        } else {
+            try self.slides.append(slide.*);
+            slide.* = Slide.init(self.allocator);
+        }
         slide.background_color = bg_color;
     }
 
@@ -474,12 +541,12 @@ pub const SlideShow = struct {
                 .bg => |color| {
                     slide.background_color = color;
                 },
-                .slide => {
+                .slide => |is_fallthrough| {
                     if (slide.sections.items.len == 0) {
                         print("Line: {} | ", .{lexer.line});
                         return SlidesParseError.EmptySlide;
                     }
-                    try self.newSlide(&slide);
+                    try self.newSlide(&slide, is_fallthrough);
                 },
                 .center => {
                     section.alignment = .center;

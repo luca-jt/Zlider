@@ -1,4 +1,3 @@
 slide file hot reloading (what happens when no slide is valid in rendering and other functions?)
 layers, colored areas on slides
-fallthrough slides to enable basic animations
 no black edges one home screen + slide side ratio

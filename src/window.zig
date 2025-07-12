@@ -205,16 +205,20 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
         try slide_file_name.append(0);
 
         const number_slice = slide_file_name.items[slide_file_name.items.len-8..slide_file_name.items.len-5];
+        var slide_number: usize = 1;
 
-        while (state.slide_show.slide_index < state.slide_show.slides.items.len) {
-            const slide_number = state.slide_show.slide_index + 1;
+        while (state.slide_show.slide_index < state.slide_show.slides.items.len) : (state.slide_show.slide_index += 1) {
+            if (state.slide_show.currentSlide().has_fallthrough_successor) continue;
+
             _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
 
             try state.renderer.render(&state.slide_show);
             copyFrameBufferToMemory(slide_mem);
+
             _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window_state.vp_size_x, state.window_state.vp_size_y, 4, @ptrCast(slide_mem), state.window_state.vp_size_x * 4);
             print("Dumped slide {} to file '{s}'.\n", .{slide_number, slide_file_name.items[0..slide_file_name.items.len-1]});
-            state.slide_show.slide_index += 1;
+
+            slide_number += 1;
         }
 
         state.slide_show.slide_index = current_slide_idx;

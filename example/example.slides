@@ -88,3 +88,14 @@ text
 text
 This is another text segement that should be positioned right under the previous text without additional space in between.
 text
+
+
+
+slide fallthrough
+
+// This is a slide that implicitely contains all the content from the previous one to enable basic animations.
+// When dumping the slides to images, these slides are compressed into one.
+
+text
+This is a text line that "animated" using a fallthrough slide.
+text
