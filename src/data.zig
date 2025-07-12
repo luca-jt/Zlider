@@ -38,58 +38,45 @@ pub const SplitIterator = struct {
     next_part_start: usize = 0,
     string: []const u8,
     delimiter: u8,
+    include_empty_slices: bool = true,
 
     const Self = @This();
 
     pub fn next(self: *Self) ?[]const u8 {
-        const start = self.next_part_start;
-        var end = start;
-        var parts_left = false;
-
-        for (self.string[start..]) |char| {
-            if (char == self.delimiter) {
-                parts_left = true;
-                break;
-            }
-            end += 1;
-        } else {
-            if (end == start) return null;
-        }
-
-        const line = self.string[start..end];
-        self.next_part_start = if (parts_left) end + 1 else end;
-        return line;
-    }
-
-    pub fn isEmpty(self: *const Self) bool {
-        return self.next_part_start >= self.string.len;
-    }
-
-    pub fn peek(self: *const Self) ?[]const u8 {
+        if (self.next_part_start > self.string.len) return null;
         const start = self.next_part_start;
         var end = start;
 
         for (self.string[start..]) |char| {
             if (char == self.delimiter) break;
             end += 1;
-        } else {
-            if (end == start) return null;
         }
+        self.next_part_start = end + 1;
 
-        return self.string[start..end];
+        const slice = self.string[start..end];
+        if (slice.len == 0 and !self.include_empty_slices) return self.next();
+        return slice;
     }
 
-    /// advances the iterator once and returns wether or not an element was skipped
-    pub fn advance(self: *Self) bool {
-        if (self.isEmpty()) return false;
+    pub fn peek(self: *Self, num: usize) ?[]const u8 {
+        if (self.next_part_start > self.string.len or num == 0) return null;
+        const start = self.next_part_start;
+        var end = start;
 
-        while (!self.isEmpty()) {
-            if (self.string[self.next_part_start] == self.delimiter) break;
-            self.next_part_start += 1;
+        for (self.string[start..]) |char| {
+            if (char == self.delimiter) break;
+            end += 1;
         }
-        if (!self.isEmpty()) self.next_part_start += 1; // skip the delimiter
 
-        return true;
+        var slice: ?[]const u8 = self.string[start..end];
+        const slice_is_skipped = slice.?.len == 0 and !self.include_empty_slices;
+
+        if (slice_is_skipped or num > 1) {
+            self.next_part_start = end + 1;
+            slice = self.peek(if (slice_is_skipped) num else num - 1);
+            self.next_part_start = start;
+        }
+        return slice;
     }
 };
 

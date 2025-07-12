@@ -419,13 +419,14 @@ pub const Renderer = struct {
                         var line_to_render_start: usize = 0;
 
                         // we do the entire render process until there are no more auto-line-breaks to resolve
-                        while (!word_iterator.isEmpty()) {
+                        // this while loop runs once for every rendered line (might be forced by auto-line-breaks)
+                        while (word_iterator.next()) |first_word| {
+                            // there is always at least one word in a line
 
-                            const first_word = word_iterator.next().?; // there is always at least one word in a line
                             var line_width: f64 = sliceFontWidth(first_word, &font_storage, font_display_scale);
                             var line_to_render_len: usize = first_word.len;
 
-                            while (word_iterator.peek()) |word| {
+                            while (word_iterator.peek(1)) |word| {
                                 const additional_width = space_width + sliceFontWidth(word, &font_storage, font_display_scale);
 
                                 // We don't know wether or not the line fits on the whole screen.
@@ -434,7 +435,7 @@ pub const Renderer = struct {
 
                                 line_width += additional_width;
                                 line_to_render_len += 1 + word.len; // don't forget the space
-                                std.debug.assert(word_iterator.advance()); // we peeked successfully
+                                std.debug.assert(word_iterator.next() != null); // we peeked successfully
                             }
 
                             const line_to_render = line[line_to_render_start..line_to_render_start + line_to_render_len];

@@ -135,7 +135,6 @@ const Lexer = struct {
 
     fn readUntilNewLine(self: *Self) []const u8 {
         self.buffer.clearRetainingCapacity();
-        self.skipWhiteSpace();
 
         while (self.head() != 0 and self.head() != '\n') {
             self.readChar();
@@ -144,6 +143,8 @@ const Lexer = struct {
             if (last != ' ' and last != '\t') break;
             _ = self.buffer.pop().?;
         }
+        if (self.head() == '\n') self.ptr += 1; // skip the one newline
+
         return self.buffer.items;
     }
 
@@ -192,18 +193,20 @@ const Lexer = struct {
                     .text => blk: {
                         var text = String.init(self.allocator);
                         errdefer text.deinit();
+                        if (self.head() == '\n') self.ptr += 1; // skip the newline after the keyword
                         var line = self.readUntilNewLine();
 
-                        while (line.len != 0) {
+                        // This loop runs until the end of the file is found. In case the last word in the file is 'text' we also have to check for the line length to make shure to register it.
+                        while (self.head() != 0 or line.len != 0) {
                             if (std.mem.eql(u8, line, "text")) break;
-                            try text.appendSlice(line);
+                            if (line.len != 0) try text.appendSlice(line);
                             try text.append('\n');
                             line = self.readUntilNewLine();
                         } else {
-                            print("Line {}: ", .{self.line});
-                            text.deinit();
+                            print("Line {}: 'text' | ", .{self.line});
                             return SlidesParseError.LexerNoClosingKeyword;
                         }
+                        _ = text.pop(); // remove the trailing line break if present
                         break :blk .{ .text = text };
                     },
                     .space => blk: {

@@ -38,33 +38,24 @@ text_color 0xFC5D7CFF
 // define the text size (this also works before any content is defined because there is no previous content)
 text_size 50
 
-// set the line spacing factor for the section formatting
-line_spacing 1.8
 
 text
 
 This is a second test slide with formatted text and another image.
 Text segments can be as long as you want.
 
-Empty lines are ignored.
+Empty lines are respected.
 
 text
 
-space 1
-
-text_size 30
-font monospace
-right // set the content alignment
-
-text
-Use spacings for that.
-text
 
 // All the formatting parameters can be re-defined multiple times per slide for different sections.
 // Every time you declare some content to be inserted (like text or images) the formatting previously defined is used.
 
-center
+center // set the content alignment
 image_scale 0.5 // scales images by a certain factor
+
+space 2
 
 image ./../example/test.png // more complicated paths are resolved
 
@@ -78,7 +69,8 @@ left
 line_spacing 1.0
 bg 0x000000FF
 text_color 0xFFFFFFFF
-
+// set the line spacing factor for the section formatting
+line_spacing 1.8
 
 text
 This is a very long line that demonstrates automatic line breaking for all the formatting cases. It is longer than the width of one slide. The line breaking happens between full words only. Block text is not currently supported.
@@ -86,7 +78,7 @@ A line break works as you would think.
 text
 
 text
-This is another text segement that should be positioned right under the previous text without additional space in between.
+This is another text segment that should be positioned right under the previous text without additional space in between.
 text
 
 
@@ -98,4 +90,20 @@ slide fallthrough
 
 text
 This is a text line that "animated" using a fallthrough slide.
+text
+
+
+
+slide
+
+font monospace
+line_spacing 1.0
+
+text
+// indented code works too
+const std = @import("std");
+
+pub fn main() !void {
+    std.debug.print("Hamburger\n");
+}
 text

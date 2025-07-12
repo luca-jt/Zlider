@@ -1,3 +1,4 @@
-slide file hot reloading (what happens when no slide is valid in rendering and other functions?)
+slide file hot reloading (what happens when no slide is valid in rendering and other functions on parse error?)
 layers, colored areas on slides
 no black edges one home screen + slide side ratio
+optional header and footer
