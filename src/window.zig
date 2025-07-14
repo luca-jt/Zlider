@@ -1,103 +1,172 @@
 const target_os = @import("builtin").target.os.tag;
 const c = @import("c.zig");
 const slide = @import("slides.zig");
+const state = @import("state.zig");
 const std = @import("std");
 const print = std.debug.print;
 const String = std.ArrayList(u8);
 const Allocator = std.mem.Allocator;
-const state = @import("state.zig");
 
-pub const viewport_ratio: f32 = 16.0 / 9.0;
 pub const default_title: [:0]const u8 = "Zlider";
+pub const initial_window_width: c_int = 800;
+pub const initial_window_height: c_int = 450;
+pub const initial_viewport_ratio: f32 = @as(f32, @floatFromInt(initial_window_width)) / @as(f32, @floatFromInt(initial_window_height));
 
-pub fn updateWindowAttributes(window: *c.GLFWwindow) void {
-    c.glfwGetWindowPos(window, &state.window_state.win_pos_x, &state.window_state.win_pos_y);
-    c.glfwGetWindowSize(window, &state.window_state.win_size_x, &state.window_state.win_size_y);
-}
+pub const Window = extern struct {
+    window: ?*c.GLFWwindow = null,
+    forced_viewport_ratio: f32 = 0, // null not available in extern structs
+    black_bars: bool = true,
+    pos_x: c_int = undefined,
+    pos_y: c_int = undefined,
+    size_x: c_int = initial_window_width,
+    size_y: c_int = initial_window_height,
+    viewport_pos_x: c_int = 0,
+    viewport_pos_y: c_int = 0,
+    viewport_size_x: c_int = initial_window_width,
+    viewport_size_y: c_int = initial_window_height,
 
-fn resizeViewport(width: c_int, height: c_int) void {
-    var w = width;
-    var h = height;
-    var vp_x: c_int = 0;
-    var vp_y: c_int = 0;
-    const regular_ratio = @as(f32, @floatFromInt(w)) / @as(f32, @floatFromInt(h));
+    const Self = @This();
 
-    if (viewport_ratio < regular_ratio) {
-        const forced_width: c_int = @intFromFloat(@as(f32, @floatFromInt(h)) * viewport_ratio);
-        vp_x = @divTrunc((w - forced_width), 2);
-        w = forced_width;
-    } else if (viewport_ratio > regular_ratio) {
-        const forced_height: c_int = @intFromFloat(@as(f32, @floatFromInt(w)) / viewport_ratio);
-        vp_y = @divTrunc((h - forced_height), 2);
-        h = forced_height;
+    pub fn init(self: *Self) !void {
+        if (c.glfwInit() == c.GL_FALSE) {
+            return error.GLFWInitFailed;
+        }
+
+        c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MAJOR, 4);
+        c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MINOR, 5);
+        c.glfwWindowHint(c.GLFW_OPENGL_PROFILE, c.GLFW_OPENGL_CORE_PROFILE);
+
+        if (target_os == .macos) {
+            c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, c.GL_TRUE);
+        }
+
+        const window = c.glfwCreateWindow(initial_window_width, initial_window_height, default_title, null, null) orelse return error.GLFWWindowCreationFailed;
+
+        c.glfwMakeContextCurrent(window);
+        c.glfwSetWindowSizeLimits(window, initial_window_width / 2, initial_window_height / 2, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
+
+        if (c.gladLoadGLLoader(@ptrCast(&c.glfwGetProcAddress)) == c.GL_FALSE) {
+            return error.GladInitFailed;
+        }
+
+        // set the event config
+        c.glfwSetInputMode(window, c.GLFW_LOCK_KEY_MODS, c.GLFW_TRUE);
+        c.glfwSetInputMode(window, c.GLFW_STICKY_KEYS, c.GLFW_TRUE);
+        _ = c.glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+        _ = c.glfwSetWindowPosCallback(window, windowPosCallback);
+        _ = c.glfwSetDropCallback(window, dropCallback);
+
+        self.window = window;
+        self.updatePosition();
+        self.updateSize();
+        self.updateViewport(initial_window_width, initial_window_height);
     }
 
-    c.glViewport(vp_x, vp_y, w, h);
-    c.glScissor(vp_x, vp_y, w, h);
-}
-
-pub fn initWindow(width: c_int, height: c_int) *c.GLFWwindow {
-    if (c.glfwInit() == c.GL_FALSE) {
-        @panic("Failed to initialize GLFW.");
+    pub fn updateTitle(self: *Self, title: ?[]const u8) void {
+        if (title) |t| {
+            c.glfwSetWindowTitle(self.window, @ptrCast(t)); // assumed to be null-terminated
+        } else {
+            c.glfwSetWindowTitle(self.window, default_title);
+        }
     }
 
-    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MAJOR, 4);
-    c.glfwWindowHint(c.GLFW_CONTEXT_VERSION_MINOR, 5);
-    c.glfwWindowHint(c.GLFW_OPENGL_PROFILE, c.GLFW_OPENGL_CORE_PROFILE);
-
-    if (target_os == .macos) {
-        c.glfwWindowHint(c.GLFW_OPENGL_FORWARD_COMPAT, c.GL_TRUE);
+    pub fn updatePosition(self: *Self) void {
+        c.glfwGetWindowPos(self.window, &self.pos_x, &self.pos_y);
     }
 
-    const window = c.glfwCreateWindow(width, height, default_title, null, null) orelse @panic("Failed to create GLFW window.");
-
-    c.glfwMakeContextCurrent(window);
-    c.glfwSetWindowSizeLimits(window, 100, 100, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
-
-    if (c.gladLoadGLLoader(@ptrCast(&c.glfwGetProcAddress)) == c.GL_FALSE) {
-        @panic("Failed to initialize GLAD.");
+    pub fn updateSize(self: *Self) void {
+        c.glfwGetWindowSize(self.window, &self.size_x, &self.size_y);
     }
 
-    framebufferSizeCallback(window, width, height);
+    pub fn updateViewport(self: *Self, width: c_int, height: c_int) void {
+        var w = width;
+        var h = height;
+        var vp_x: c_int = 0;
+        var vp_y: c_int = 0;
+        const regular_ratio = @as(f32, @floatFromInt(w)) / @as(f32, @floatFromInt(h));
 
-    return window;
-}
+        if (self.forcedViewportRatio()) |viewport_ratio| {
+            if (viewport_ratio < regular_ratio) {
+                const forced_width: c_int = @intFromFloat(@as(f32, @floatFromInt(h)) * viewport_ratio);
+                vp_x = @divTrunc((w - forced_width), 2);
+                w = forced_width;
+            } else if (viewport_ratio > regular_ratio) {
+                const forced_height: c_int = @intFromFloat(@as(f32, @floatFromInt(w)) / viewport_ratio);
+                vp_y = @divTrunc((h - forced_height), 2);
+                h = forced_height;
+            }
+        }
 
-pub fn closeWindow(window: *c.GLFWwindow) void {
-    c.glfwDestroyWindow(window);
-    c.glfwTerminate();
-}
+        c.glViewport(vp_x, vp_y, w, h);
+        c.glScissor(vp_x, vp_y, w, h);
+
+        c.glGetIntegerv(c.GL_VIEWPORT, &self.viewport_pos_x); // this overwrites both viewport position and size
+    }
+
+    /// this function exists because extern structs can't contain optionals
+    pub fn forcedViewportRatio(self: *const Self) ?f32 {
+        return if (self.forced_viewport_ratio == 0) null else self.forced_viewport_ratio;
+    }
+
+    /// width / height
+    pub fn viewportRatio(self: *const Self) f32 {
+        return @as(f32, @floatFromInt(self.viewport_size_x)) / @as(f32, @floatFromInt(self.viewport_size_y));
+    }
+
+    fn writeFrameBufferToMemory(self: *const Self, memory: [:0]u8) void {
+        c.glReadPixels(self.viewport_pos_x, self.viewport_pos_y, self.viewport_size_x, self.viewport_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
+    }
+
+    fn toggleFullscreen(self: *Self) void {
+        const monitor = c.glfwGetPrimaryMonitor();
+        if (c.glfwGetWindowMonitor(self.window) == null) {
+            self.updatePosition();
+            self.updateSize();
+            const mode = c.glfwGetVideoMode(monitor);
+            c.glfwSetWindowMonitor(self.window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
+        } else {
+            c.glfwSetWindowMonitor(self.window, null, self.pos_x, self.pos_y, self.size_x, self.size_y, c.GLFW_DONT_CARE);
+        }
+    }
+
+    pub fn shouldClose(self: *const Self) bool {
+        return c.glfwWindowShouldClose(self.window) != c.GL_FALSE;
+    }
+
+    pub fn close(self: *const Self) void {
+        c.glfwSetWindowShouldClose(self.window, c.GLFW_TRUE);
+    }
+
+    pub fn destroy(self: Self) void {
+        c.glfwDestroyWindow(self.window);
+        c.glfwTerminate();
+    }
+};
 
 fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
-    resizeViewport(width, height);
-    c.glGetIntegerv(c.GL_VIEWPORT, &state.window_state.vp_pos_x); // this overwrites both viewport position and size
-    c.glfwGetWindowSize(window, &state.window_state.win_size_x, &state.window_state.win_size_y);
+    _ = window;
+    state.window.updateSize();
+    state.window.updateViewport(width, height);
+    state.renderer.updateProjection();
 }
 
 fn windowPosCallback(window: ?*c.GLFWwindow, xpos: c_int, ypos: c_int) callconv(.c) void {
-    _ = xpos; // to suppress errors
-    _ = ypos;
-    c.glfwGetWindowPos(window, &state.window_state.win_pos_x, &state.window_state.win_pos_y);
+    _ = window;
+    state.window.pos_x = xpos;
+    state.window.pos_y = ypos;
 }
 
 fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const u8) callconv(.c) void {
+    _ = window;
     if (path_count != 1) return;
     const path: [:0]const u8 = std.mem.span(paths[0]); // assumed to be null-terminated
 
     state.renderer.clear();
-    state.slide_show.loadNewSlides(path, window) catch @panic("allocation error");
+    state.slide_show.loadNewSlides(path) catch @panic("allocation error");
     state.renderer.loadSlideData(&state.slide_show);
 }
 
-pub fn setEventConfig(window: *c.GLFWwindow) void {
-    c.glfwSetInputMode(window, c.GLFW_LOCK_KEY_MODS, c.GLFW_TRUE);
-    c.glfwSetInputMode(window, c.GLFW_STICKY_KEYS, c.GLFW_TRUE);
-    _ = c.glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
-    _ = c.glfwSetWindowPosCallback(window, windowPosCallback);
-    _ = c.glfwSetDropCallback(window, dropCallback);
-}
-
-fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
+fn keyIsPressed(key: c_int) bool {
     const KeyStates = struct {
         var f11 = false;
         var left = false;
@@ -109,7 +178,7 @@ fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
         var esc = false;
     };
 
-    const event = c.glfwGetKey(window, key);
+    const event = c.glfwGetKey(state.window.window, key);
     const pressed = event == c.GLFW_PRESS;
     const released = event == c.GLFW_RELEASE;
 
@@ -158,41 +227,36 @@ fn keyIsPressed(window: *c.GLFWwindow, key: c_int) bool {
     };
 }
 
-pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
-    // fullscreen toggle
-    if (keyIsPressed(window, c.GLFW_KEY_F11)) {
-        const monitor = c.glfwGetPrimaryMonitor();
-        if (c.glfwGetWindowMonitor(window) == null) {
-            updateWindowAttributes(window);
-            const mode = c.glfwGetVideoMode(monitor);
-            c.glfwSetWindowMonitor(window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
-        } else {
-            c.glfwSetWindowMonitor(window, null, state.window_state.win_pos_x, state.window_state.win_pos_y, state.window_state.win_size_x, state.window_state.win_size_y, c.GLFW_DONT_CARE);
-        }
+pub fn handleInput(allocator: Allocator) !void {
+    if (keyIsPressed(c.GLFW_KEY_F11)) {
+        state.window.toggleFullscreen();
     }
+
     // slide show switch
-    if (keyIsPressed(window, c.GLFW_KEY_RIGHT) or keyIsPressed(window, c.GLFW_KEY_DOWN)) {
+    if (keyIsPressed(c.GLFW_KEY_RIGHT) or keyIsPressed(c.GLFW_KEY_DOWN)) {
         if (state.slide_show.slide_index + 1 < state.slide_show.slides.items.len) {
             state.slide_show.slide_index += 1;
         }
     }
-    if (keyIsPressed(window, c.GLFW_KEY_LEFT) or keyIsPressed(window, c.GLFW_KEY_UP)) {
+    if (keyIsPressed(c.GLFW_KEY_LEFT) or keyIsPressed(c.GLFW_KEY_UP)) {
         if (state.slide_show.slide_index > 0) {
             state.slide_show.slide_index -= 1;
         }
     }
+
     // unload the slides
-    if (keyIsPressed(window, c.GLFW_KEY_C) and state.slide_show.fileIsTracked()) {
+    if (keyIsPressed(c.GLFW_KEY_C) and state.slide_show.fileIsTracked()) {
         state.renderer.clear();
-        state.slide_show.loadHomeScreenSlide(window);
+        state.slide_show.loadHomeScreenSlide();
         state.renderer.loadSlideData(&state.slide_show);
     }
+
     // dump the slides to png
-    if (keyIsPressed(window, c.GLFW_KEY_I) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
+    if (keyIsPressed(c.GLFW_KEY_I) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
         const current_slide_idx = state.slide_show.slide_index;
         state.slide_show.slide_index = 0;
 
-        const slide_mem_size = @as(usize, @intCast(state.window_state.vp_size_x)) * @as(usize, @intCast(state.window_state.vp_size_y)) * 4;
+        const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * 4;
         const slide_mem = try allocator.allocSentinel(u8, slide_mem_size, 0);
         defer allocator.free(slide_mem);
 
@@ -213,9 +277,9 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
             _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
 
             try state.renderer.render(&state.slide_show);
-            copyFrameBufferToMemory(slide_mem);
+            state.window.writeFrameBufferToMemory(slide_mem);
 
-            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window_state.vp_size_x, state.window_state.vp_size_y, 4, @ptrCast(slide_mem), state.window_state.vp_size_x * 4);
+            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, 4, @ptrCast(slide_mem), state.window.viewport_size_x * 4);
             print("Dumped slide {} to file '{s}'.\n", .{slide_number, slide_file_name.items[0..slide_file_name.items.len-1]});
 
             slide_number += 1;
@@ -223,12 +287,8 @@ pub fn handleInput(window: *c.GLFWwindow, allocator: Allocator) !void {
 
         state.slide_show.slide_index = current_slide_idx;
     }
-    // close the window
-    if (keyIsPressed(window, c.GLFW_KEY_ESCAPE)) {
-        c.glfwSetWindowShouldClose(window, c.GLFW_TRUE);
-    }
-}
 
-fn copyFrameBufferToMemory(memory: [:0]u8) void {
-    c.glReadPixels(state.window_state.vp_pos_x, state.window_state.vp_pos_y, state.window_state.vp_size_x, state.window_state.vp_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
+    if (keyIsPressed(c.GLFW_KEY_ESCAPE)) {
+        state.window.close();
+    }
 }

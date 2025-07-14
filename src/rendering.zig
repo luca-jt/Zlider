@@ -1,13 +1,14 @@
 const c = @import("c.zig");
 const data = @import("data.zig");
+const win = @import("window.zig");
+const state = @import("state.zig");
+const SlideShow = @import("slides.zig").SlideShow;
+const lina = @import("linalg.zig");
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
 const HashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const win = @import("window.zig");
-const SlideShow = @import("slides.zig").SlideShow;
-const lina = @import("linalg.zig");
 
 fn clearScreen(color: data.Color32) void {
     const float_color = color.toVec4();
@@ -213,8 +214,8 @@ pub const Renderer = struct {
     obj_buffer: ArrayList(Vertex),
     all_tex_ids: ArrayList(c.GLuint),
     max_num_meshes: usize,
-    projection: lina.Mat4 = lina.Mat4.ortho(-win.viewport_ratio / 2, win.viewport_ratio / 2, -0.5, 0.5, 0.1, 2.0),
-    view: lina.Mat4 = lina.Mat4.lookAt(lina.vec3(0.5 * win.viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * win.viewport_ratio, -0.5, 0.0), lina.Vec3.unitY),
+    projection: lina.Mat4 = lina.Mat4.ortho(-win.initial_viewport_ratio / 2, win.initial_viewport_ratio / 2, -0.5, 0.5, 0.1, 2.0), // these calls are fine because the initial ratio is known
+    view: lina.Mat4 = lina.Mat4.lookAt(lina.vec3(0.5 * win.initial_viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * win.initial_viewport_ratio, -0.5, 0.0), lina.Vec3.unitY),
     images: StringHashMap(ImageData),
     serif_font_data: FontData,
     sans_serif_font_data: FontData,
@@ -327,6 +328,11 @@ pub const Renderer = struct {
         self.serif_font_data.clear();
         self.sans_serif_font_data.clear();
         self.monospace_font_data.clear();
+    }
+
+    pub fn updateProjection(self: *Self) void {
+        const viewport_ratio = state.window.viewportRatio();
+        self.projection = lina.Mat4.ortho(-viewport_ratio / 2, viewport_ratio / 2, -0.5, 0.5, 0.1, 2.0);
     }
 
     pub fn loadSlideData(self: *Self, slide_show: *SlideShow) void {

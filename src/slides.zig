@@ -6,6 +6,7 @@ const String = std.ArrayList(u8);
 const data = @import("data.zig");
 const c = @import("c.zig");
 const win = @import("window.zig");
+const state = @import("state.zig");
 
 pub const Keyword = enum(usize) {
     text_color,
@@ -22,6 +23,8 @@ pub const Keyword = enum(usize) {
     line_spacing,
     font,
     file_drop_image,
+    aspect_ratio,
+    black_bars,
 };
 
 pub const Token = union(enum) {
@@ -39,6 +42,8 @@ pub const Token = union(enum) {
     line_spacing: f64,
     font_style: FontStyle,
     file_drop_image,
+    aspect_ratio: f32,
+    black_bars: bool,
 };
 
 /// Allocates memory, reads the contents of an entire file into a dynamic string and adds null-termination.
@@ -277,6 +282,50 @@ const Lexer = struct {
                         break :blk .{ .font_style = font_style };
                     },
                     .file_drop_image => .file_drop_image,
+                    .aspect_ratio => blk: {
+                        const ratio_slice = self.readNextWord();
+                        var number_it = data.SplitIterator{ .string = ratio_slice, .delimiter = '_' };
+
+                        const width = if (number_it.next()) |num_slice|
+                            std.fmt.parseInt(u8, num_slice, 10) catch {
+                                print("Line {}: '{s}' | ", .{ self.line, num_slice });
+                                return SlidesParseError.LexerInvalidToken;
+                            }
+                        else {
+                            print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
+                            return SlidesParseError.LexerInvalidToken;
+                        };
+
+                        const height = if (number_it.next()) |num_slice|
+                            std.fmt.parseInt(u8, num_slice, 10) catch {
+                                print("Line {}: '{s}' | ", .{ self.line, num_slice });
+                                return SlidesParseError.LexerInvalidToken;
+                            }
+                        else {
+                            print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
+                            return SlidesParseError.LexerInvalidToken;
+                        };
+
+                        if (number_it.next() != null) {
+                            print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
+                            return SlidesParseError.LexerInvalidToken;
+                        }
+
+                        const ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
+                        break :blk .{ .aspect_ratio = ratio };
+                    },
+                    .black_bars => blk: {
+                        const flag_slice = self.readNextWord();
+                        const flag_value = if (std.mem.eql(u8, flag_slice, "true"))
+                            true
+                        else if (std.mem.eql(u8, flag_slice, "false"))
+                            false
+                        else {
+                            print("Line {}: '{s}' | ", .{ self.line, flag_slice });
+                            return SlidesParseError.LexerInvalidToken;
+                        };
+                        break :blk .{ .black_bars = flag_value };
+                    },
                 };
                 break;
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
@@ -424,20 +473,6 @@ pub const SlideShow = struct {
         return self.tracked_file.items.len > 0;
     }
 
-    fn windowTitleAlloc(self: *const Self) !String {
-        var title = String.init(self.allocator);
-        errdefer title.deinit();
-        try title.appendSlice(win.default_title);
-
-        std.debug.assert(self.fileIsTracked());
-
-        try title.appendSlice(" | ");
-        try title.appendSlice(self.loadedFileName());
-        try title.append(0); // null-termination needed
-
-        return title;
-    }
-
     fn unloadSlides(self: *Self) void {
         for (self.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
@@ -480,7 +515,7 @@ pub const SlideShow = struct {
         self.loadSlides(self.tracked_file.items);
     }
 
-    pub fn loadNewSlides(self: *Self, file_path: [:0]const u8, window: ?*c.GLFWwindow) !void {
+    pub fn loadNewSlides(self: *Self, file_path: [:0]const u8) !void {
         const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
         defer self.allocator.free(full_file_path);
 
@@ -489,16 +524,22 @@ pub const SlideShow = struct {
         self.unloadSlides();
         self.loadSlides(full_file_path);
 
-        const new_title = try self.windowTitleAlloc();
+        // update window title
+        var new_title = String.init(self.allocator);
         defer new_title.deinit();
-        c.glfwSetWindowTitle(window, @ptrCast(new_title.items));
+        try new_title.appendSlice(win.default_title);
+        std.debug.assert(self.fileIsTracked());
+        try new_title.appendSlice(" | ");
+        try new_title.appendSlice(self.loadedFileName());
+        try new_title.append(0); // null-termination needed
+
+        state.window.updateTitle(new_title.items);
     }
 
-    pub fn loadHomeScreenSlide(self: *Self, window: ?*c.GLFWwindow) void {
-        const file_tracked = self.tracked_file.items.len > 0;
-        if (file_tracked) {
+    pub fn loadHomeScreenSlide(self: *Self) void {
+        if (self.fileIsTracked()) {
             self.tracked_file.clearRetainingCapacity();
-            c.glfwSetWindowTitle(window, win.default_title);
+            state.window.updateTitle(null);
             print("Unloaded slide show file.\n", .{});
         }
         self.unloadSlides();
@@ -509,20 +550,6 @@ pub const SlideShow = struct {
 
     pub fn currentSlide(self: *const Self) *Slide {
         return &self.slides.items[self.slide_index];
-    }
-
-    fn newSlide(self: *Self, slide: *Slide, is_fallthrough: bool) !void {
-        const bg_color = slide.background_color;
-        if (is_fallthrough) {
-            const slide_clone = try slide.clone();
-            slide.has_fallthrough_successor = true;
-            try self.slides.append(slide.*);
-            slide.* = slide_clone;
-        } else {
-            try self.slides.append(slide.*);
-            slide.* = Slide.init(self.allocator);
-        }
-        slide.background_color = bg_color;
     }
 
     fn parseSlideShow(self: *Self, file_contents: []const u8) !void {
@@ -589,6 +616,12 @@ pub const SlideShow = struct {
                     section.section_type = .{ .image = .file_drop_image };
                     try newSection(&slide, &section);
                 },
+                .aspect_ratio => |ratio| {
+                    state.window.forced_viewport_ratio = ratio;
+                },
+                .black_bars => |flag| {
+                    state.window.black_bars = flag;
+                }
             }
         }
 
@@ -600,6 +633,20 @@ pub const SlideShow = struct {
         try self.slides.append(slide);
 
         if (self.slides.items.len > 999) return SlidesParseError.TooManySlides;
+    }
+
+    fn newSlide(self: *Self, slide: *Slide, is_fallthrough: bool) !void {
+        const bg_color = slide.background_color;
+        if (is_fallthrough) {
+            const slide_clone = try slide.clone();
+            slide.has_fallthrough_successor = true;
+            try self.slides.append(slide.*);
+            slide.* = slide_clone;
+        } else {
+            try self.slides.append(slide.*);
+            slide.* = Slide.init(self.allocator);
+        }
+        slide.background_color = bg_color;
     }
 };
 
