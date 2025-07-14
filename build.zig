@@ -22,17 +22,12 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
-    exe.linkSystemLibrary("glfw");
-    exe.linkSystemLibrary("rt");
-    exe.linkSystemLibrary("m");
-    exe.linkSystemLibrary("dl");
-
     exe.addIncludePath(b.path("src/extern"));
-
     exe.addCSourceFiles(.{
         .files = &[_][]const u8{"src/extern/stb_impl.c", "src/extern/glad.c"},
         .flags = &[_][]const u8{"-g", "-O3"},
     });
+    exe.addObjectFile(b.path("src/extern/libglfw3.a"));
 
     b.installArtifact(exe);
 
