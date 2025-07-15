@@ -2,19 +2,11 @@ const c = @import("c.zig");
 const data = @import("data.zig");
 const win = @import("window.zig");
 const state = @import("state.zig");
-const SlideShow = @import("slides.zig").SlideShow;
 const lina = @import("linalg.zig");
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
 const HashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
-const Allocator = std.mem.Allocator;
-
-fn clearScreen(color: data.Color32) void {
-    const float_color = color.toVec4();
-    c.glClearColor(float_color.x, float_color.y, float_color.z, float_color.w);
-    c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
-}
 
 fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     const shader = c.glCreateShader(ty);
@@ -27,9 +19,8 @@ fn compileShader(src: [*:0]const c.GLchar, ty: c.GLenum) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetShaderiv(shader, c.GL_INFO_LOG_LENGTH, &len);
-        const allocator = std.heap.c_allocator;
-        const buf = allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
-        defer allocator.free(buf);
+        const buf = state.allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
+        defer state.allocator.free(buf);
         c.glGetShaderInfoLog(shader, len, null, buf);
         @panic(buf);
     }
@@ -53,9 +44,8 @@ fn linkProgram(vs: c.GLuint, fs: c.GLuint) c.GLuint {
     if (status != c.GL_TRUE) {
         var len: c.GLint = 0;
         c.glGetProgramiv(program, c.GL_INFO_LOG_LENGTH, &len);
-        const allocator = std.heap.c_allocator;
-        const buf = allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
-        defer allocator.free(buf);
+        const buf = state.allocator.allocSentinel(c.GLchar, @as(usize, @intCast(len)) * @sizeOf(c.GLchar) + 1, 0) catch @panic("allocation error");
+        defer state.allocator.free(buf);
         c.glGetProgramInfoLog(program, len, null, buf);
         @panic(buf);
     }
@@ -130,13 +120,13 @@ const FontStorage = extern struct {
 
     const Self = @This();
 
-    fn initWithFontData(allocator: Allocator, font: [:0]const u8, font_size: usize) !Self {
+    fn initWithFontData(font: [:0]const u8, font_size: usize) !Self {
         const float_font_size: f32 = @floatFromInt(font_size);
         const size: usize = @intFromFloat(float_font_size * @ceil(@sqrt(@as(f32, @floatFromInt(data.glyph_count))) + 1)); // this should be enough?!
         var self: Self = .{ .texture_side_size = size };
 
-        const buffer = try allocator.alloc(u8, size * size);
-        defer allocator.free(buffer);
+        const buffer = try state.allocator.alloc(u8, size * size);
+        defer state.allocator.free(buffer);
         _ = c.stbtt_BakeFontBitmap(font, 0, float_font_size, @ptrCast(buffer), @intCast(size), @intCast(size), data.first_char, data.glyph_count, &self.baked_chars);
 
         c.glGenTextures(1, &self.texture);
@@ -156,15 +146,13 @@ const FontData = struct {
     descent: c_int = undefined,
     line_gap: c_int = undefined,
     loaded_fonts: HashMap(usize, FontStorage),
-    allocator: Allocator,
     font: [:0]const u8,
 
     const Self = @This();
 
-    fn init(allocator: Allocator, font: [:0]const u8) !Self {
+    fn init(font: [:0]const u8) !Self {
         var self = Self{
-            .allocator = allocator,
-            .loaded_fonts = HashMap(usize, FontStorage).init(allocator),
+            .loaded_fonts = HashMap(usize, FontStorage).init(state.allocator),
             .font = font,
         };
 
@@ -177,7 +165,7 @@ const FontData = struct {
     fn loadFont(self: *Self, font_size: usize) void {
         const sourced_font_size = font_size * font_render_size_multiplier;
         if (self.loaded_fonts.contains(sourced_font_size)) return;
-        const font_storage = FontStorage.initWithFontData(self.allocator, self.font, sourced_font_size) catch @panic("allocation error");
+        const font_storage = FontStorage.initWithFontData(self.font, sourced_font_size) catch @panic("allocation error");
         self.loaded_fonts.put(sourced_font_size, font_storage) catch @panic("allocation error");
     }
 
@@ -221,11 +209,10 @@ pub const Renderer = struct {
     sans_serif_font_data: FontData,
     monospace_font_data: FontData,
     file_drop_image: ?ImageData = null,
-    allocator: Allocator,
 
     const Self = @This();
 
-    pub fn init(allocator: Allocator) !Self {
+    pub fn init() !Self {
         c.glEnable(c.GL_SCISSOR_TEST);
         c.glEnable(c.GL_BLEND);
         c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
@@ -238,14 +225,13 @@ pub const Renderer = struct {
         var self = Self{
             .shader = createShader(data.vertex_shader, data.fragment_shader),
             .white_texture = generateWhiteTexture(),
-            .obj_buffer = try ArrayList(Vertex).initCapacity(allocator, max_num_meshes * data.plane_vertices.len),
-            .all_tex_ids = try ArrayList(c.GLuint).initCapacity(allocator, max_texture_count - 1),
+            .obj_buffer = try ArrayList(Vertex).initCapacity(state.allocator, max_num_meshes * data.plane_vertices.len),
+            .all_tex_ids = try ArrayList(c.GLuint).initCapacity(state.allocator, max_texture_count - 1),
             .max_num_meshes = max_num_meshes,
-            .images = StringHashMap(ImageData).init(allocator),
-            .serif_font_data = try FontData.init(allocator, data.serif_font),
-            .sans_serif_font_data = try FontData.init(allocator, data.sans_serif_font),
-            .monospace_font_data = try FontData.init(allocator, data.monospace_font),
-            .allocator = allocator,
+            .images = StringHashMap(ImageData).init(state.allocator),
+            .serif_font_data = try FontData.init(data.serif_font),
+            .sans_serif_font_data = try FontData.init(data.sans_serif_font),
+            .monospace_font_data = try FontData.init(data.monospace_font),
         };
 
         c.glGenVertexArrays(1, &self.vao);
@@ -268,7 +254,7 @@ pub const Renderer = struct {
         c.glVertexAttribPointer(3, 1, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "tex_idx")));
 
         const num_indices = data.plane_indices.len * self.max_num_meshes;
-        var indices = try ArrayList(c.GLuint).initCapacity(allocator, num_indices);
+        var indices = try ArrayList(c.GLuint).initCapacity(state.allocator, num_indices);
         defer indices.deinit();
 
         for (0..num_indices) |i| {
@@ -336,8 +322,8 @@ pub const Renderer = struct {
         self.view = lina.Mat4.lookAt(lina.vec3(0.5 * viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * viewport_ratio, -0.5, 0.0), lina.Vec3.unitY);
     }
 
-    pub fn loadSlideData(self: *Self, slide_show: *SlideShow) void {
-        for (slide_show.slides.items) |*slide| {
+    pub fn loadSlideData(self: *Self) void {
+        for (state.slide_show.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
                 switch (section.section_type) {
                     .image => |image_source| {
@@ -387,9 +373,9 @@ pub const Renderer = struct {
         }
     }
 
-    pub fn render(self: *Self, slide_show: *SlideShow) !void {
-        const slide = slide_show.currentSlide();
-        clearScreen(slide.background_color);
+    pub fn render(self: *Self) !void {
+        const slide = state.slide_show.currentSlide();
+        state.window.clearScreen(slide.background_color);
 
         const min_x_start: f64 = 10; // in pixels
         var cursor_x: f64 = min_x_start; // x position in pixel units
@@ -681,7 +667,7 @@ pub const Renderer = struct {
         );
 
         const num_indices = data.plane_indices.len * self.max_num_meshes;
-        var indices = try ArrayList(c.GLuint).initCapacity(self.allocator, num_indices);
+        var indices = try ArrayList(c.GLuint).initCapacity(state.allocator, num_indices);
         defer indices.deinit();
 
         for (0..num_indices) |i| {

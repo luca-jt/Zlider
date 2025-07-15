@@ -1,6 +1,5 @@
 const std = @import("std");
 const print = std.debug.print;
-const Allocator = std.mem.Allocator;
 pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
 const data = @import("data.zig");
@@ -46,16 +45,6 @@ pub const Token = union(enum) {
     black_bars: bool,
 };
 
-/// Allocates memory, reads the contents of an entire file into a dynamic string and adds null-termination.
-fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
-    const dir = std.fs.cwd();
-    const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
-    var string = String.fromOwnedSlice(allocator, buffer);
-    try string.append(0); // do this for lexing pointer stuff
-    errdefer string.deinit();
-    return string;
-}
-
 pub const SlidesParseError = error {
     LexerNoClosingKeyword,
     LexerUnknownKeyword,
@@ -72,15 +61,13 @@ const Lexer = struct {
     buffer: String,
     input: [*:0]const u8,
     ptr: usize = 0,
-    allocator: Allocator,
 
     const Self = @This();
 
-    fn initWithInput(allocator: Allocator, input: []const u8, file_dir: ?[]const u8) !Self {
+    fn initWithInput(input: []const u8, file_dir: ?[]const u8) !Self {
         return .{
             .file_dir = file_dir,
-            .buffer = try String.initCapacity(allocator, input.len), // the buffer is sure to only ever contain the entire input at most, so this enables us to minimize allocations
-            .allocator = allocator,
+            .buffer = try String.initCapacity(state.allocator, input.len), // the buffer is sure to only ever contain the entire input at most, so this enables us to minimize allocations
             .input = @ptrCast(input), // null-termination is guarantied
         };
     }
@@ -196,7 +183,7 @@ const Lexer = struct {
                     .left => .left,
                     .right => .right,
                     .text => blk: {
-                        var text = String.init(self.allocator);
+                        var text = String.init(state.allocator);
                         errdefer text.deinit();
                         if (self.head() == '\n') self.ptr += 1; // skip the newline after the keyword
                         var line = self.readUntilNewLine();
@@ -237,13 +224,13 @@ const Lexer = struct {
                         }
 
                         const path_slice = self.readNextWord();
-                        var full_image_path = String.init(self.allocator);
+                        var full_image_path = String.init(state.allocator);
                         defer full_image_path.deinit();
                         try full_image_path.appendSlice(self.file_dir.?);
                         try full_image_path.append('/'); // i think this should be fine on windows
                         try full_image_path.appendSlice(path_slice);
-                        const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{full_image_path.items});
-                        const resolved_path_owned = String.fromOwnedSlice(self.allocator, resolved_path);
+                        const resolved_path = try std.fs.path.resolve(state.allocator, &[_][]const u8{full_image_path.items});
+                        const resolved_path_owned = String.fromOwnedSlice(state.allocator, resolved_path);
                         errdefer resolved_path_owned.deinit();
                         std.fs.accessAbsolute(resolved_path_owned.items, .{}) catch |err| {
                             print("Line {}: '{s}' | ", .{ self.line, resolved_path_owned.items });
@@ -398,8 +385,8 @@ pub const Slide = struct {
 
     const Self = @This();
 
-    fn init(allocator: Allocator) Self {
-        return .{ .sections = ArrayList(Section).init(allocator) };
+    fn init() Self {
+        return .{ .sections = ArrayList(Section).init(state.allocator) };
     }
 
     fn clone(self: *const Self) !Slide {
@@ -416,16 +403,14 @@ pub const SlideShow = struct {
     slides: ArrayList(Slide),
     slide_index: usize = 0,
     tracked_file: String,
-    allocator: Allocator,
     home_screen_loaded: bool = false,
 
     const Self = @This();
 
-    pub fn init(allocator: Allocator) !Self {
+    pub fn init() !Self {
         return .{
-            .slides = ArrayList(Slide).init(allocator),
-            .tracked_file = String.init(allocator),
-            .allocator = allocator,
+            .slides = ArrayList(Slide).init(state.allocator),
+            .tracked_file = String.init(state.allocator),
         };
     }
 
@@ -473,7 +458,7 @@ pub const SlideShow = struct {
         return self.tracked_file.items.len > 0;
     }
 
-    fn unloadSlides(self: *Self) void {
+    pub fn unloadSlides(self: *Self) void {
         for (self.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
                 switch (section.section_type) {
@@ -491,157 +476,10 @@ pub const SlideShow = struct {
         }
         self.slides.clearRetainingCapacity();
         self.slide_index = 0;
-
-        state.window.display_black_bars = false;
-        state.window.forceViewportAspectRatio(null);
-        state.window.updateViewport(state.window.size_x, state.window.size_y);
-        state.renderer.updateMatrices();
-    }
-
-    fn loadSlides(self: *Self, file_path: []const u8) void {
-        state.window.display_black_bars = true;
-
-        const file_contents = readEntireFile(file_path, self.allocator) catch |err| {
-            print("{s} | Unable to read file: {s}\n", .{ @errorName(err), file_path });
-            return;
-        };
-        defer file_contents.deinit();
-
-        self.parseSlideShow(file_contents.items) catch |e| {
-            print("Error: {s}", .{@errorName(e)});
-            print("\nUnable to parse slide show file: {s}\n", .{file_path});
-            return;
-        };
-        print("Successfully loaded slide show file: '{s}'.\n", .{file_path});
-    }
-
-    /// called during hot reloading
-    fn reloadSlides(self: *Self) void {
-        std.debug.assert(self.fileIsTracked());
-        self.unloadSlides();
-        self.loadSlides(self.tracked_file.items);
-    }
-
-    pub fn loadNewSlides(self: *Self, file_path: [:0]const u8) !void {
-        const full_file_path = try std.fs.realpathAlloc(self.allocator, file_path);
-        defer self.allocator.free(full_file_path);
-
-        self.tracked_file.clearRetainingCapacity();
-        try self.tracked_file.appendSlice(full_file_path);
-        self.unloadSlides();
-        self.loadSlides(full_file_path);
-
-        // update window title
-        var new_title = String.init(self.allocator);
-        defer new_title.deinit();
-        try new_title.appendSlice(win.default_title);
-        std.debug.assert(self.fileIsTracked());
-        try new_title.appendSlice(" | ");
-        try new_title.appendSlice(self.loadedFileName());
-        try new_title.append(0); // null-termination needed
-
-        state.window.updateTitle(new_title.items);
-    }
-
-    pub fn loadHomeScreenSlide(self: *Self) void {
-        if (self.fileIsTracked()) {
-            self.tracked_file.clearRetainingCapacity();
-            state.window.updateTitle(null);
-            print("Unloaded slide show file.\n", .{});
-        }
-        self.unloadSlides();
-        self.parseSlideShow(data.home_screen_slide) catch |e| {
-            print("Error: {s}\n", .{@errorName(e)});
-        };
     }
 
     pub fn currentSlide(self: *const Self) *Slide {
         return &self.slides.items[self.slide_index];
-    }
-
-    fn parseSlideShow(self: *Self, file_contents: []const u8) !void {
-        errdefer self.unloadSlides();
-
-        const slide_file_dir = if (self.fileIsTracked()) self.loadedFileDir() else null;
-        var lexer = try Lexer.initWithInput(self.allocator, file_contents, slide_file_dir);
-        defer lexer.deinit();
-
-        var slide = Slide.init(self.allocator);
-        errdefer slide.sections.deinit();
-        var section = Section{ .section_type = undefined };
-
-        while (try lexer.nextToken()) |token| {
-            switch (token) {
-                .text_color => |color| {
-                    section.text_color = color;
-                },
-                .bg => |color| {
-                    slide.background_color = color;
-                },
-                .slide => |is_fallthrough| {
-                    if (slide.sections.items.len == 0) {
-                        print("Line: {} | ", .{lexer.line});
-                        return SlidesParseError.EmptySlide;
-                    }
-                    try self.newSlide(&slide, is_fallthrough);
-                },
-                .center => {
-                    section.alignment = .center;
-                },
-                .left => {
-                    section.alignment = .left;
-                },
-                .right => {
-                    section.alignment = .right;
-                },
-                .text => |string| {
-                    section.section_type = .{ .text = string };
-                    try newSection(&slide, &section);
-                },
-                .space => |lines| {
-                    section.section_type = .{ .space = lines };
-                    try newSection(&slide, &section);
-                },
-                .text_size => |number| {
-                    section.text_size = number;
-                },
-                .image => |*path| {
-                    section.section_type = .{ .image = .{ .path = path.* } };
-                    try section.section_type.image.path.append(0); // for c interop later on
-                    try newSection(&slide, &section);
-                },
-                .image_scale => |scale| {
-                    section.image_scale = scale;
-                },
-                .line_spacing => |spacing| {
-                    section.line_spacing = spacing;
-                },
-                .font_style => |style| {
-                    section.font_style = style;
-                },
-                .file_drop_image => {
-                    section.section_type = .{ .image = .file_drop_image };
-                    try newSection(&slide, &section);
-                },
-                .aspect_ratio => |ratio| {
-                    state.window.forceViewportAspectRatio(ratio);
-                    state.window.updateViewport(state.window.size_x, state.window.size_y);
-                    state.renderer.updateMatrices();
-                },
-                .black_bars => |flag| {
-                    state.window.display_black_bars = flag;
-                }
-            }
-        }
-
-        // create the last slide
-        if (slide.sections.items.len == 0) {
-            print("Line: {} | ", .{lexer.line});
-            return SlidesParseError.EmptySlide;
-        }
-        try self.slides.append(slide);
-
-        if (self.slides.items.len > 999) return SlidesParseError.TooManySlides;
     }
 
     fn newSlide(self: *Self, slide: *Slide, is_fallthrough: bool) !void {
@@ -653,7 +491,7 @@ pub const SlideShow = struct {
             slide.* = slide_clone;
         } else {
             try self.slides.append(slide.*);
-            slide.* = Slide.init(self.allocator);
+            slide.* = Slide.init();
         }
         slide.background_color = bg_color;
     }
@@ -676,4 +514,160 @@ fn newSection(slide: *Slide, section: *Section) !void {
     section.image_scale = image_scale;
     section.line_spacing = line_spacing;
     section.font_style = font_style;
+}
+
+fn parseSlideShow(file_contents: []const u8) !void {
+    errdefer unloadSlideShow();
+
+    const slide_file_dir = if (state.slide_show.fileIsTracked()) state.slide_show.loadedFileDir() else null;
+    var lexer = try Lexer.initWithInput(file_contents, slide_file_dir);
+    defer lexer.deinit();
+
+    var slide = Slide.init();
+    errdefer slide.sections.deinit();
+    var section = Section{ .section_type = undefined };
+
+    while (try lexer.nextToken()) |token| {
+        switch (token) {
+            .text_color => |color| {
+                section.text_color = color;
+            },
+            .bg => |color| {
+                slide.background_color = color;
+            },
+            .slide => |is_fallthrough| {
+                if (slide.sections.items.len == 0) {
+                    print("Line: {} | ", .{lexer.line});
+                    return SlidesParseError.EmptySlide;
+                }
+                try state.slide_show.newSlide(&slide, is_fallthrough);
+            },
+            .center => {
+                section.alignment = .center;
+            },
+            .left => {
+                section.alignment = .left;
+            },
+            .right => {
+                section.alignment = .right;
+            },
+            .text => |string| {
+                section.section_type = .{ .text = string };
+                try newSection(&slide, &section);
+            },
+            .space => |lines| {
+                section.section_type = .{ .space = lines };
+                try newSection(&slide, &section);
+            },
+            .text_size => |number| {
+                section.text_size = number;
+            },
+            .image => |*path| {
+                section.section_type = .{ .image = .{ .path = path.* } };
+                try section.section_type.image.path.append(0); // for c interop later on
+                try newSection(&slide, &section);
+            },
+            .image_scale => |scale| {
+                section.image_scale = scale;
+            },
+            .line_spacing => |spacing| {
+                section.line_spacing = spacing;
+            },
+            .font_style => |style| {
+                section.font_style = style;
+            },
+            .file_drop_image => {
+                section.section_type = .{ .image = .file_drop_image };
+                try newSection(&slide, &section);
+            },
+            .aspect_ratio => |ratio| {
+                state.window.forceViewportAspectRatio(ratio);
+                state.window.updateViewport(state.window.size_x, state.window.size_y);
+                state.renderer.updateMatrices();
+                c.glfwPostEmptyEvent();
+            },
+            .black_bars => |flag| {
+                state.window.display_black_bars = flag;
+                state.window.updateViewport(state.window.size_x, state.window.size_y);
+                c.glfwPostEmptyEvent();
+            }
+        }
+    }
+
+    // create the last slide
+    if (slide.sections.items.len == 0) {
+        print("Line: {} | ", .{lexer.line});
+        return SlidesParseError.EmptySlide;
+    }
+    try state.slide_show.slides.append(slide);
+
+    if (state.slide_show.slides.items.len > 999) return SlidesParseError.TooManySlides;
+}
+
+fn loadSlidesFromFile(file_path: []const u8) void {
+    const file_contents = data.readEntireFile(file_path, state.allocator) catch |err| {
+        print("{s} | Unable to read file: {s}\n", .{ @errorName(err), file_path });
+        return;
+    };
+    defer file_contents.deinit();
+
+    parseSlideShow(file_contents.items) catch |e| {
+        print("Error: {s}", .{@errorName(e)});
+        print("\nUnable to parse slide show file: {s}\n", .{file_path});
+        return;
+    };
+    print("Successfully loaded slide show file: '{s}'.\n", .{file_path});
+}
+
+fn unloadSlideShow() void {
+    state.slide_show.unloadSlides();
+    state.window.display_black_bars = false;
+    state.window.forceViewportAspectRatio(null);
+    state.window.updateViewport(state.window.size_x, state.window.size_y);
+    state.renderer.updateMatrices();
+    c.glfwPostEmptyEvent();
+}
+
+/// called during hot reloading
+pub fn reloadSlideShow() void {
+    std.debug.assert(state.slide_show.fileIsTracked());
+    unloadSlideShow();
+    state.window.display_black_bars = true;
+    loadSlidesFromFile(state.slide_show.tracked_file.items);
+}
+
+pub fn loadSlideShow(file_path: [:0]const u8) !void {
+    const full_file_path = try std.fs.realpathAlloc(state.allocator, file_path);
+    defer state.allocator.free(full_file_path);
+
+    state.slide_show.tracked_file.clearRetainingCapacity();
+    try state.slide_show.tracked_file.appendSlice(full_file_path);
+
+    unloadSlideShow();
+    state.window.display_black_bars = true;
+    loadSlidesFromFile(full_file_path);
+
+    // update window title
+    var new_title = String.init(state.allocator);
+    defer new_title.deinit();
+    try new_title.appendSlice(win.default_title);
+    std.debug.assert(state.slide_show.fileIsTracked());
+    try new_title.appendSlice(" | ");
+    try new_title.appendSlice(state.slide_show.loadedFileName());
+    try new_title.append(0); // null-termination needed
+
+    state.window.updateTitle(new_title.items);
+}
+
+pub fn loadHomeScreenSlide() void {
+    if (state.slide_show.fileIsTracked()) {
+        state.slide_show.tracked_file.clearRetainingCapacity();
+        state.window.updateTitle(null);
+        print("Unloaded slide show file.\n", .{});
+    }
+    unloadSlideShow();
+
+    parseSlideShow(data.home_screen_slide) catch |e| {
+        print("Error: {s}\n", .{@errorName(e)});
+    };
 }

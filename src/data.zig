@@ -1,7 +1,18 @@
 const std = @import("std");
-pub const String = std.ArrayList(u8);
+const String = std.ArrayList(u8);
+const Allocator = std.mem.Allocator;
 const c = @import("c.zig");
 const lina = @import("linalg.zig");
+
+/// Allocates memory, reads the contents of an entire file into a dynamic string and adds null-termination.
+pub fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
+    const dir = std.fs.cwd();
+    const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
+    var string = String.fromOwnedSlice(allocator, buffer);
+    try string.append(0); // do this for lexing pointer stuff
+    errdefer string.deinit();
+    return string;
+}
 
 pub const Color32 = packed struct {
     a: u8 = 0,

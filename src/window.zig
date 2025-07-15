@@ -1,11 +1,11 @@
 const target_os = @import("builtin").target.os.tag;
 const c = @import("c.zig");
-const slide = @import("slides.zig");
+const slides = @import("slides.zig");
 const state = @import("state.zig");
+const data = @import("data.zig");
 const std = @import("std");
 const print = std.debug.print;
 const String = std.ArrayList(u8);
-const Allocator = std.mem.Allocator;
 
 pub const default_title: [:0]const u8 = "Zlider";
 pub const initial_window_width: c_int = 800;
@@ -110,6 +110,19 @@ pub const Window = extern struct {
         c.glGetIntegerv(c.GL_VIEWPORT, &self.viewport_pos_x); // this overwrites both viewport position and size
     }
 
+    pub fn clearScreen(self: *const Self, color: data.Color32) void {
+        c.glScissor(0, 0, self.size_x, self.size_y);
+        c.glClearColor(0, 0, 0, 1);
+        c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
+
+        if (self.display_black_bars) {
+            c.glScissor(self.viewport_pos_x, self.viewport_pos_y, self.viewport_size_x, self.viewport_size_y);
+        }
+        const float_color = color.toVec4();
+        c.glClearColor(float_color.x, float_color.y, float_color.z, float_color.w);
+        c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
+    }
+
     pub fn shouldClose(self: *const Self) bool {
         return c.glfwWindowShouldClose(self.glfw_window) != c.GL_FALSE;
     }
@@ -174,8 +187,8 @@ fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const 
     const path: [:0]const u8 = std.mem.span(paths[0]); // assumed to be null-terminated
 
     state.renderer.clear();
-    state.slide_show.loadNewSlides(path) catch @panic("allocation error");
-    state.renderer.loadSlideData(&state.slide_show);
+    slides.loadSlideShow(path) catch @panic("allocation error");
+    state.renderer.loadSlideData();
 }
 
 fn keyIsPressed(key: c_int) bool {
@@ -239,7 +252,7 @@ fn keyIsPressed(key: c_int) bool {
     };
 }
 
-pub fn handleInput(allocator: Allocator) !void {
+pub fn handleInput() !void {
     if (keyIsPressed(c.GLFW_KEY_F11)) {
         state.window.toggleFullscreen();
     }
@@ -259,8 +272,8 @@ pub fn handleInput(allocator: Allocator) !void {
     // unload the slides
     if (keyIsPressed(c.GLFW_KEY_C) and state.slide_show.fileIsTracked()) {
         state.renderer.clear();
-        state.slide_show.loadHomeScreenSlide();
-        state.renderer.loadSlideData(&state.slide_show);
+        slides.loadHomeScreenSlide();
+        state.renderer.loadSlideData();
     }
 
     // dump the slides to png
@@ -269,10 +282,10 @@ pub fn handleInput(allocator: Allocator) !void {
         state.slide_show.slide_index = 0;
 
         const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * 4;
-        const slide_mem = try allocator.allocSentinel(u8, slide_mem_size, 0);
-        defer allocator.free(slide_mem);
+        const slide_mem = try state.allocator.allocSentinel(u8, slide_mem_size, 0);
+        defer state.allocator.free(slide_mem);
 
-        var slide_file_name = String.init(allocator);
+        var slide_file_name = String.init(state.allocator);
         defer slide_file_name.deinit();
         try slide_file_name.appendSlice(state.slide_show.loadedFileDir());
         try slide_file_name.append('/');
@@ -288,7 +301,7 @@ pub fn handleInput(allocator: Allocator) !void {
 
             _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
 
-            try state.renderer.render(&state.slide_show);
+            try state.renderer.render();
             state.window.writeFrameBufferToMemory(slide_mem);
 
             _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, 4, @ptrCast(slide_mem), state.window.viewport_size_x * 4);

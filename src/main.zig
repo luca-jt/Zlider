@@ -6,12 +6,11 @@ const render = @import("rendering.zig");
 const state = @import("state.zig");
 
 pub fn main() !void {
-    const allocator = std.heap.c_allocator;
-    var args = try std.process.argsWithAllocator(allocator);
+    var args = try std.process.argsWithAllocator(state.allocator);
     defer args.deinit();
     std.debug.assert(args.skip()); // skip the program name
 
-    state.slide_show = try slides.SlideShow.init(allocator);
+    state.slide_show = try slides.SlideShow.init();
     defer state.slide_show.deinit();
 
     try state.window.init();
@@ -19,20 +18,20 @@ pub fn main() !void {
 
     c.stbi_flip_vertically_on_write(1);
 
-    state.renderer = try render.Renderer.init(allocator);
+    state.renderer = try render.Renderer.init();
     defer state.renderer.deinit();
 
     if (args.next()) |file_path| {
-        try state.slide_show.loadNewSlides(file_path);
+        try slides.loadSlideShow(file_path);
         if (args.skip()) @panic("You can only supply one additional command line argument with a file or zero.");
     } else {
-        state.slide_show.loadHomeScreenSlide();
+        slides.loadHomeScreenSlide();
     }
-    state.renderer.loadSlideData(&state.slide_show);
+    state.renderer.loadSlideData();
 
     while (!state.window.shouldClose()) {
-        try win.handleInput(allocator);
-        try state.renderer.render(&state.slide_show);
+        try win.handleInput();
+        try state.renderer.render();
         c.glfwSwapBuffers(state.window.glfw_window);
         c.glfwWaitEvents();
     }
