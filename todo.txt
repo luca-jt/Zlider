@@ -3,8 +3,3 @@ layers
 colored areas on slides
 optional header and footer
 slide file hot reloading (what happens when no slide is valid in rendering and other functions on parse error?)
-
-no black edges one home screen + slide side ratio:
-handle reference sizes in data.zig
-handle black bars and forced ratio on slide (de-)loads
-handle matrix updates depending on forced ratio and black bars

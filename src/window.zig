@@ -10,12 +10,16 @@ const Allocator = std.mem.Allocator;
 pub const default_title: [:0]const u8 = "Zlider";
 pub const initial_window_width: c_int = 800;
 pub const initial_window_height: c_int = 450;
-pub const initial_viewport_ratio: f32 = @as(f32, @floatFromInt(initial_window_width)) / @as(f32, @floatFromInt(initial_window_height));
+pub const default_viewport_aspect_ratio: f32 = 16.0 / 9.0;
+pub const default_viewport_resolution_width_reference: f64 = 1920;
+pub var viewport_resolution_width_reference: f64 = default_viewport_resolution_width_reference;
+pub const viewport_resolution_height_reference: f64 = 1080; // never changes
 
 pub const Window = extern struct {
-    window: ?*c.GLFWwindow = null,
-    forced_viewport_ratio: f32 = 0, // null not available in extern structs
-    black_bars: bool = true,
+    glfw_window: ?*c.GLFWwindow = null,
+    forced_viewport_aspect_ratio: f32 = default_viewport_aspect_ratio, // (width / height)
+    display_black_bars: bool = false,
+
     pos_x: c_int = undefined,
     pos_y: c_int = undefined,
     size_x: c_int = initial_window_width,
@@ -56,7 +60,7 @@ pub const Window = extern struct {
         _ = c.glfwSetWindowPosCallback(window, windowPosCallback);
         _ = c.glfwSetDropCallback(window, dropCallback);
 
-        self.window = window;
+        self.glfw_window = window;
         self.updatePosition();
         self.updateSize();
         self.updateViewport(initial_window_width, initial_window_height);
@@ -64,18 +68,18 @@ pub const Window = extern struct {
 
     pub fn updateTitle(self: *Self, title: ?[]const u8) void {
         if (title) |t| {
-            c.glfwSetWindowTitle(self.window, @ptrCast(t)); // assumed to be null-terminated
+            c.glfwSetWindowTitle(self.glfw_window, @ptrCast(t)); // assumed to be null-terminated
         } else {
-            c.glfwSetWindowTitle(self.window, default_title);
+            c.glfwSetWindowTitle(self.glfw_window, default_title);
         }
     }
 
     pub fn updatePosition(self: *Self) void {
-        c.glfwGetWindowPos(self.window, &self.pos_x, &self.pos_y);
+        c.glfwGetWindowPos(self.glfw_window, &self.pos_x, &self.pos_y);
     }
 
     pub fn updateSize(self: *Self) void {
-        c.glfwGetWindowSize(self.window, &self.size_x, &self.size_y);
+        c.glfwGetWindowSize(self.glfw_window, &self.size_x, &self.size_y);
     }
 
     pub fn updateViewport(self: *Self, width: c_int, height: c_int) void {
@@ -84,28 +88,49 @@ pub const Window = extern struct {
         var vp_x: c_int = 0;
         var vp_y: c_int = 0;
         const regular_ratio = @as(f32, @floatFromInt(w)) / @as(f32, @floatFromInt(h));
+        const viewport_ratio = self.forced_viewport_aspect_ratio;
 
-        if (self.forcedViewportRatio()) |viewport_ratio| {
-            if (viewport_ratio < regular_ratio) {
-                const forced_width: c_int = @intFromFloat(@as(f32, @floatFromInt(h)) * viewport_ratio);
-                vp_x = @divTrunc((w - forced_width), 2);
-                w = forced_width;
-            } else if (viewport_ratio > regular_ratio) {
-                const forced_height: c_int = @intFromFloat(@as(f32, @floatFromInt(w)) / viewport_ratio);
-                vp_y = @divTrunc((h - forced_height), 2);
-                h = forced_height;
-            }
+        if (viewport_ratio < regular_ratio) {
+            const forced_width: c_int = @intFromFloat(@as(f32, @floatFromInt(h)) * viewport_ratio);
+            vp_x = @divTrunc((w - forced_width), 2);
+            w = forced_width;
+        } else if (viewport_ratio > regular_ratio) {
+            const forced_height: c_int = @intFromFloat(@as(f32, @floatFromInt(w)) / viewport_ratio);
+            vp_y = @divTrunc((h - forced_height), 2);
+            h = forced_height;
         }
 
         c.glViewport(vp_x, vp_y, w, h);
-        c.glScissor(vp_x, vp_y, w, h);
+        if (self.display_black_bars) {
+            c.glScissor(vp_x, vp_y, w, h);
+        } else {
+            c.glScissor(0, 0, width, height);
+        }
 
         c.glGetIntegerv(c.GL_VIEWPORT, &self.viewport_pos_x); // this overwrites both viewport position and size
     }
 
-    /// this function exists because extern structs can't contain optionals
-    pub fn forcedViewportRatio(self: *const Self) ?f32 {
-        return if (self.forced_viewport_ratio == 0) null else self.forced_viewport_ratio;
+    pub fn shouldClose(self: *const Self) bool {
+        return c.glfwWindowShouldClose(self.glfw_window) != c.GL_FALSE;
+    }
+
+    pub fn close(self: *const Self) void {
+        c.glfwSetWindowShouldClose(self.glfw_window, c.GLFW_TRUE);
+    }
+
+    pub fn destroy(self: Self) void {
+        c.glfwDestroyWindow(self.glfw_window);
+        c.glfwTerminate();
+    }
+
+    pub fn forceViewportAspectRatio(self: *Self, aspect: ?f32) void {
+        if (aspect) |forced_aspect| {
+            self.forced_viewport_aspect_ratio = forced_aspect;
+            viewport_resolution_width_reference = viewport_resolution_height_reference * forced_aspect;
+        } else {
+            self.forced_viewport_aspect_ratio = default_viewport_aspect_ratio;
+            viewport_resolution_width_reference = default_viewport_resolution_width_reference;
+        }
     }
 
     /// width / height
@@ -119,27 +144,14 @@ pub const Window = extern struct {
 
     fn toggleFullscreen(self: *Self) void {
         const monitor = c.glfwGetPrimaryMonitor();
-        if (c.glfwGetWindowMonitor(self.window) == null) {
+        if (c.glfwGetWindowMonitor(self.glfw_window) == null) {
             self.updatePosition();
             self.updateSize();
             const mode = c.glfwGetVideoMode(monitor);
-            c.glfwSetWindowMonitor(self.window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
+            c.glfwSetWindowMonitor(self.glfw_window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
         } else {
-            c.glfwSetWindowMonitor(self.window, null, self.pos_x, self.pos_y, self.size_x, self.size_y, c.GLFW_DONT_CARE);
+            c.glfwSetWindowMonitor(self.glfw_window, null, self.pos_x, self.pos_y, self.size_x, self.size_y, c.GLFW_DONT_CARE);
         }
-    }
-
-    pub fn shouldClose(self: *const Self) bool {
-        return c.glfwWindowShouldClose(self.window) != c.GL_FALSE;
-    }
-
-    pub fn close(self: *const Self) void {
-        c.glfwSetWindowShouldClose(self.window, c.GLFW_TRUE);
-    }
-
-    pub fn destroy(self: Self) void {
-        c.glfwDestroyWindow(self.window);
-        c.glfwTerminate();
     }
 };
 
@@ -147,7 +159,7 @@ fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: c_int, height: c_int) 
     _ = window;
     state.window.updateSize();
     state.window.updateViewport(width, height);
-    state.renderer.updateProjection();
+    state.renderer.updateMatrices();
 }
 
 fn windowPosCallback(window: ?*c.GLFWwindow, xpos: c_int, ypos: c_int) callconv(.c) void {
@@ -178,7 +190,7 @@ fn keyIsPressed(key: c_int) bool {
         var esc = false;
     };
 
-    const event = c.glfwGetKey(state.window.window, key);
+    const event = c.glfwGetKey(state.window.glfw_window, key);
     const pressed = event == c.GLFW_PRESS;
     const released = event == c.GLFW_RELEASE;
 

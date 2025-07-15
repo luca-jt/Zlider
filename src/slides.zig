@@ -491,9 +491,16 @@ pub const SlideShow = struct {
         }
         self.slides.clearRetainingCapacity();
         self.slide_index = 0;
+
+        state.window.display_black_bars = false;
+        state.window.forceViewportAspectRatio(null);
+        state.window.updateViewport(state.window.size_x, state.window.size_y);
+        state.renderer.updateMatrices();
     }
 
     fn loadSlides(self: *Self, file_path: []const u8) void {
+        state.window.display_black_bars = true;
+
         const file_contents = readEntireFile(file_path, self.allocator) catch |err| {
             print("{s} | Unable to read file: {s}\n", .{ @errorName(err), file_path });
             return;
@@ -617,10 +624,12 @@ pub const SlideShow = struct {
                     try newSection(&slide, &section);
                 },
                 .aspect_ratio => |ratio| {
-                    state.window.forced_viewport_ratio = ratio;
+                    state.window.forceViewportAspectRatio(ratio);
+                    state.window.updateViewport(state.window.size_x, state.window.size_y);
+                    state.renderer.updateMatrices();
                 },
                 .black_bars => |flag| {
-                    state.window.black_bars = flag;
+                    state.window.display_black_bars = flag;
                 }
             }
         }

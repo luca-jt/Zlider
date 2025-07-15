@@ -33,7 +33,7 @@ pub fn main() !void {
     while (!state.window.shouldClose()) {
         try win.handleInput(allocator);
         try state.renderer.render(&state.slide_show);
-        c.glfwSwapBuffers(state.window.window);
+        c.glfwSwapBuffers(state.window.glfw_window);
         c.glfwWaitEvents();
     }
 }

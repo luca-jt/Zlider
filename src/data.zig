@@ -147,9 +147,6 @@ pub const monospace_font: [:0]const u8 = @embedFile("baked/SourceCodePro-Regular
 pub const first_char: c_int = 32;
 pub const glyph_count: c_int = 255 - first_char;
 
-// this determines the scaling of the text in rendering, the font size relative to the window size should not change
-pub const viewport_resolution_reference: struct { usize, usize } = .{ 1920, 1080 }; // @Cleanup: in the future, when the format of the slides can be changed, this needs to be updated as well, the reference should then be the height
-
 pub const file_drop_image: [:0]const u8 = @embedFile("baked/file_drop.png");
 
 pub const home_screen_slide: [:0]const u8 =
