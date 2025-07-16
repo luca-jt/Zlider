@@ -380,10 +380,10 @@ fn dumpSlidesPDF(compress_slides: bool) !void {
 
     var pdf_info: c.pdf_info = .{
         .creator = data.extendStringToArrayZeroed(64, "Zlider"),
-        .producer = data.extendStringToArrayZeroed(64, "Zlider"),
+        .producer = data.extendStringToArrayZeroed(64, "https://github.com/luca-jt/Zlider"),
         .title = [_]u8{0} ** 64,
         .author = data.extendStringToArrayZeroed(64, "Zlider"),
-        .subject = data.extendStringToArrayZeroed(64, "Generated Zlider slide show"),
+        .subject = data.extendStringToArrayZeroed(64, "Generated Zlider Slide Show"),
         .date = [_]u8{0} ** 64,
     };
     _ = std.fmt.bufPrint(&pdf_info.title, "{s}", .{ state.slide_show.loadedFileNameNoExtension() }) catch .{}; // we don't care if the name is too long and just continue
