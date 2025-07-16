@@ -5,4 +5,6 @@ pub usingnamespace @cImport({
     @cInclude("stb_image.h");
     @cInclude("stb_image_write.h");
     @cInclude("stb_truetype.h");
+    @cInclude("pdfgen.h");
+    @cInclude("time.h");
 });

@@ -5,6 +5,7 @@ const state = @import("state.zig");
 const data = @import("data.zig");
 const std = @import("std");
 const print = std.debug.print;
+const assert = std.debug.assert;
 const String = std.ArrayList(u8);
 
 pub const default_title: [:0]const u8 = "Zlider";
@@ -151,8 +152,24 @@ pub const Window = extern struct {
         return @as(f32, @floatFromInt(self.viewport_size_x)) / @as(f32, @floatFromInt(self.viewport_size_y));
     }
 
-    fn writeFrameBufferToMemory(self: *const Self, memory: [:0]u8) void {
-        c.glReadPixels(self.viewport_pos_x, self.viewport_pos_y, self.viewport_size_x, self.viewport_size_y, c.GL_RGBA, c.GL_UNSIGNED_BYTE, @ptrCast(memory));
+    fn writeFrameBufferToMemory(self: *const Self, memory: [:0]u8, comptime channels: usize) !void {
+        const byte_format = if (channels == 3) c.GL_RGB else if (channels == 4) c.GL_RGBA else @compileError("Channel number not supported.");
+
+        const temp_mem = try state.allocator.allocSentinel(u8, memory.len, 0);
+        defer state.allocator.free(temp_mem);
+
+        c.glPixelStorei(c.GL_PACK_ALIGNMENT, 1);
+        c.glReadPixels(self.viewport_pos_x, self.viewport_pos_y, self.viewport_size_x, self.viewport_size_y, byte_format, c.GL_UNSIGNED_BYTE, @ptrCast(temp_mem));
+
+        // flip the image vertically
+        const row_length: usize = @as(usize, @intCast(self.viewport_size_x)) * channels;
+        for (0..@intCast(self.viewport_size_y)) |i| {
+            const source_row_start = i * row_length;
+            const target_row_start = (@as(usize, @intCast(self.viewport_size_y)) - 1 - i) * row_length;
+            const source_row = temp_mem[source_row_start..source_row_start + row_length];
+            const target_row = memory[target_row_start..target_row_start + row_length];
+            @memcpy(target_row, source_row);
+        }
     }
 
     fn toggleFullscreen(self: *Self) void {
@@ -201,6 +218,8 @@ fn keyIsPressed(key: c_int) bool {
         var i = false;
         var c = false;
         var esc = false;
+        var p = false;
+        var l = false;
     };
 
     const event = c.glfwGetKey(state.window.glfw_window, key);
@@ -248,11 +267,22 @@ fn keyIsPressed(key: c_int) bool {
             if (flip) KeyStates.esc = !KeyStates.esc;
             break :blk flip and pressed;
         },
+        c.GLFW_KEY_P => blk: {
+            const flip = pressed and !KeyStates.p or released and KeyStates.p;
+            if (flip) KeyStates.p = !KeyStates.p;
+            break :blk flip and pressed;
+        },
+        c.GLFW_KEY_L => blk: {
+            const flip = pressed and !KeyStates.l or released and KeyStates.l;
+            if (flip) KeyStates.l = !KeyStates.l;
+            break :blk flip and pressed;
+        },
         else => false,
     };
 }
 
 pub fn handleInput() !void {
+    // toggle fullscreen
     if (keyIsPressed(c.GLFW_KEY_F11)) {
         state.window.toggleFullscreen();
     }
@@ -281,7 +311,8 @@ pub fn handleInput() !void {
         const current_slide_idx = state.slide_show.slide_index;
         state.slide_show.slide_index = 0;
 
-        const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * 4;
+        const channels: usize = 4;
+        const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * channels;
         const slide_mem = try state.allocator.allocSentinel(u8, slide_mem_size, 0);
         defer state.allocator.free(slide_mem);
 
@@ -302,10 +333,10 @@ pub fn handleInput() !void {
             _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
 
             try state.renderer.render();
-            state.window.writeFrameBufferToMemory(slide_mem);
+            try state.window.writeFrameBufferToMemory(slide_mem, channels);
 
             _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, 4, @ptrCast(slide_mem), state.window.viewport_size_x * 4);
-            print("Dumped slide {} to file '{s}'.\n", .{slide_number, slide_file_name.items[0..slide_file_name.items.len-1]});
+            print("Dumped slide {} to image file '{s}'.\n", .{slide_number, slide_file_name.items});
 
             slide_number += 1;
         }
@@ -313,7 +344,68 @@ pub fn handleInput() !void {
         state.slide_show.slide_index = current_slide_idx;
     }
 
+    // close the window
     if (keyIsPressed(c.GLFW_KEY_ESCAPE)) {
         state.window.close();
     }
+
+    // dump the slides to PDF
+    if (keyIsPressed(c.GLFW_KEY_P) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
+        const compress_slides = true;
+        try dumpSlidesPDF(compress_slides);
+    }
+    if (keyIsPressed(c.GLFW_KEY_L) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
+        const compress_slides = false;
+        try dumpSlidesPDF(compress_slides);
+    }
+}
+
+fn dumpSlidesPDF(compress_slides: bool) !void {
+    const current_slide_idx = state.slide_show.slide_index;
+    state.slide_show.slide_index = 0;
+
+    const channels: usize = 3;
+    const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * channels;
+    const slide_mem = try state.allocator.allocSentinel(u8, slide_mem_size, 0);
+    defer state.allocator.free(slide_mem);
+
+    var pdf_file_name = String.init(state.allocator);
+    defer pdf_file_name.deinit();
+    try pdf_file_name.appendSlice(state.slide_show.loadedFileDir());
+    try pdf_file_name.append('/');
+    try pdf_file_name.appendSlice(state.slide_show.loadedFileNameNoExtension());
+    if (compress_slides) try pdf_file_name.appendSlice("_compressed");
+    try pdf_file_name.appendSlice(".pdf");
+    try pdf_file_name.append(0);
+
+    var pdf_info: c.pdf_info = .{
+        .creator = data.extendStringToArrayZeroed(64, "Zlider"),
+        .producer = data.extendStringToArrayZeroed(64, "Zlider"),
+        .title = [_]u8{0} ** 64,
+        .author = data.extendStringToArrayZeroed(64, "Zlider"),
+        .subject = data.extendStringToArrayZeroed(64, "Generated Zlider slide show"),
+        .date = [_]u8{0} ** 64,
+    };
+    _ = std.fmt.bufPrint(&pdf_info.title, "{s}", .{ state.slide_show.loadedFileNameNoExtension() }) catch .{}; // we don't care if the name is too long and just continue
+    var now: c.time_t = undefined;
+    _ = c.time(&now);
+    _ = std.fmt.bufPrint(&pdf_info.date, "{s}", .{ std.mem.span(c.asctime(c.localtime(&now))) }) catch unreachable;
+
+    const pdf_width: f32 = @floatFromInt(state.window.viewport_size_x);
+    const pdf_height: f32 = @floatFromInt(state.window.viewport_size_y);
+    const pdf = c.pdf_create(pdf_width, pdf_height, &pdf_info);
+
+    while (state.slide_show.slide_index < state.slide_show.slides.items.len) : (state.slide_show.slide_index += 1) {
+        if (state.slide_show.currentSlide().has_fallthrough_successor and compress_slides) continue;
+
+        try state.renderer.render();
+        try state.window.writeFrameBufferToMemory(slide_mem, channels);
+        _ = c.pdf_append_page(pdf);
+        assert(c.pdf_add_rgb24(pdf, null, 0, 0, pdf_width, pdf_height, slide_mem, @intCast(state.window.viewport_size_x), @intCast(state.window.viewport_size_y)) >= 0);
+    }
+
+    assert(c.pdf_save(pdf, @ptrCast(pdf_file_name.items)) >= 0);
+    print("Dumped slide show to PDF file: '{s}'.\n", .{ pdf_file_name.items });
+    c.pdf_destroy(pdf);
+    state.slide_show.slide_index = current_slide_idx;
 }

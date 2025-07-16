@@ -5,7 +5,8 @@ A simple slide show program in Zig.
 - load a slide show file as a **command line** argument or **drag and drop** a file into the window
 - toggle fullscreen with **F11**
 - navigate the slides with the **arrow keys**
-- dump the slides as PNG files with **I** (files are stored in the directory of the slide show file)
+- dump the slides as PNG files with **I** (files are stored in the directory of the slide show file and fallthrough slides are compressed)
+- dump the slides as a PDF file with **P** (or **L** if you don't want your fallthrough slides compressed) (file is stored in the directory of the slide show file)
 - unload the currently tracked/loaded slide show file with **C**
 
 # Example

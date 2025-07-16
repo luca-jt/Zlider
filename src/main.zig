@@ -16,8 +16,6 @@ pub fn main() !void {
     try state.window.init();
     defer state.window.destroy();
 
-    c.stbi_flip_vertically_on_write(1);
-
     state.renderer = try render.Renderer.init();
     defer state.renderer.deinit();
 

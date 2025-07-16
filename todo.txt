@@ -1,4 +1,3 @@
-don't depend on libc or any other dynamic libs
 layers
 colored areas on slides
 optional header and footer

@@ -91,6 +91,11 @@ pub const SplitIterator = struct {
     }
 };
 
+pub fn extendStringToArrayZeroed(comptime len: usize, comptime slice: []const u8) [len]u8 {
+    if (slice.len > len) @compileError("Cannot produce shorter array.");
+    return (slice ++ [_]u8{0} ** (len - slice.len)).*;
+}
+
 pub const vertex_shader: [*:0]const u8 =
     \\#version 450 core
     \\
