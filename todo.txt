@@ -1,5 +1,9 @@
+windows build
 layers
 colored areas on slides
 optional header and footer
+
 slide file hot reloading (what happens when no slide is valid in rendering and other functions on parse error?)
-resize frame buffer to reference size for dumping
+resize frame buffer to reference size for dumping with manual resize calls
+swap buffers after frame dump for animation
+to internal png before to pdf with stbi_write_png_to_mem

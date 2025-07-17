@@ -208,156 +208,113 @@ fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const 
     state.renderer.loadSlideData();
 }
 
-fn keyIsPressed(key: c_int) bool {
-    const KeyStates = struct {
-        var f11 = false;
-        var left = false;
-        var right = false;
-        var up = false;
-        var down = false;
-        var i = false;
-        var c = false;
-        var esc = false;
-        var p = false;
-        var l = false;
-    };
+const KeyState = struct {
+    const keys = [_]c_int{ c.GLFW_KEY_F11, c.GLFW_KEY_I, c.GLFW_KEY_LEFT, c.GLFW_KEY_RIGHT, c.GLFW_KEY_UP, c.GLFW_KEY_DOWN, c.GLFW_KEY_C, c.GLFW_KEY_ESCAPE, c.GLFW_KEY_P, c.GLFW_KEY_LEFT_CONTROL };
+    var states = [_]bool{ false } ** keys.len;
+    var pressed = [_]bool{ false } ** keys.len;
 
-    const event = c.glfwGetKey(state.window.glfw_window, key);
-    const pressed = event == c.GLFW_PRESS;
-    const released = event == c.GLFW_RELEASE;
+    fn update() void {
+        for (keys, 0..) |key, i| {
+            const event = c.glfwGetKey(state.window.glfw_window, key);
+            const press = event == c.GLFW_PRESS;
+            const release = event == c.GLFW_RELEASE;
+            const flip = press and !states[i] or release and states[i];
 
-    return switch (key) {
-        c.GLFW_KEY_F11 => blk: {
-            const flip = pressed and !KeyStates.f11 or released and KeyStates.f11;
-            if (flip) KeyStates.f11 = !KeyStates.f11;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_I => blk: {
-            const flip = pressed and !KeyStates.i or released and KeyStates.i;
-            if (flip) KeyStates.i = !KeyStates.i;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_LEFT => blk: {
-            const flip = pressed and !KeyStates.left or released and KeyStates.left;
-            if (flip) KeyStates.left = !KeyStates.left;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_RIGHT => blk: {
-            const flip = pressed and !KeyStates.right or released and KeyStates.right;
-            if (flip) KeyStates.right = !KeyStates.right;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_UP => blk: {
-            const flip = pressed and !KeyStates.up or released and KeyStates.up;
-            if (flip) KeyStates.up = !KeyStates.up;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_DOWN => blk: {
-            const flip = pressed and !KeyStates.down or released and KeyStates.down;
-            if (flip) KeyStates.down = !KeyStates.down;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_C => blk: {
-            const flip = pressed and !KeyStates.c or released and KeyStates.c;
-            if (flip) KeyStates.c = !KeyStates.c;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_ESCAPE => blk: {
-            const flip = pressed and !KeyStates.esc or released and KeyStates.esc;
-            if (flip) KeyStates.esc = !KeyStates.esc;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_P => blk: {
-            const flip = pressed and !KeyStates.p or released and KeyStates.p;
-            if (flip) KeyStates.p = !KeyStates.p;
-            break :blk flip and pressed;
-        },
-        c.GLFW_KEY_L => blk: {
-            const flip = pressed and !KeyStates.l or released and KeyStates.l;
-            if (flip) KeyStates.l = !KeyStates.l;
-            break :blk flip and pressed;
-        },
-        else => false,
-    };
-}
+            if (flip) states[i] = !states[i];
+            pressed[i] = flip and press;
+        }
+    }
+
+    fn isPressed(comptime key: c_int) bool {
+        inline for (keys, 0..) |k, i| {
+            if (key == k) return pressed[i];
+        }
+        return false;
+    }
+
+    fn isHeld(comptime key: c_int) bool {
+        inline for (keys, 0..) |k, i| {
+            if (key == k) return states[i];
+        }
+        return false;
+    }
+};
 
 pub fn handleInput() !void {
-    // toggle fullscreen
-    if (keyIsPressed(c.GLFW_KEY_F11)) {
+    KeyState.update();
+
+    if (KeyState.isPressed(c.GLFW_KEY_F11)) {
         state.window.toggleFullscreen();
     }
 
-    // slide show switch
-    if (keyIsPressed(c.GLFW_KEY_RIGHT) or keyIsPressed(c.GLFW_KEY_DOWN)) {
+    if (KeyState.isPressed(c.GLFW_KEY_RIGHT) or KeyState.isPressed(c.GLFW_KEY_DOWN)) {
         if (state.slide_show.slide_index + 1 < state.slide_show.slides.items.len) {
             state.slide_show.slide_index += 1;
         }
     }
-    if (keyIsPressed(c.GLFW_KEY_LEFT) or keyIsPressed(c.GLFW_KEY_UP)) {
+    if (KeyState.isPressed(c.GLFW_KEY_LEFT) or KeyState.isPressed(c.GLFW_KEY_UP)) {
         if (state.slide_show.slide_index > 0) {
             state.slide_show.slide_index -= 1;
         }
     }
 
-    // unload the slides
-    if (keyIsPressed(c.GLFW_KEY_C) and state.slide_show.fileIsTracked()) {
+    if (KeyState.isPressed(c.GLFW_KEY_C) and state.slide_show.fileIsTracked()) {
         state.renderer.clear();
         slides.loadHomeScreenSlide();
         state.renderer.loadSlideData();
     }
 
-    // dump the slides to png
-    if (keyIsPressed(c.GLFW_KEY_I) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
-        const current_slide_idx = state.slide_show.slide_index;
-        state.slide_show.slide_index = 0;
-
-        const channels: usize = 4;
-        const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * channels;
-        const slide_mem = try state.allocator.allocSentinel(u8, slide_mem_size, 0);
-        defer state.allocator.free(slide_mem);
-
-        var slide_file_name = String.init(state.allocator);
-        defer slide_file_name.deinit();
-        try slide_file_name.appendSlice(state.slide_show.loadedFileDir());
-        try slide_file_name.append('/');
-        try slide_file_name.appendSlice(state.slide_show.loadedFileNameNoExtension());
-        try slide_file_name.appendSlice("_000.png");
-        try slide_file_name.append(0);
-
-        const number_slice = slide_file_name.items[slide_file_name.items.len-8..slide_file_name.items.len-5];
-        var slide_number: usize = 1;
-
-        while (state.slide_show.slide_index < state.slide_show.slides.items.len) : (state.slide_show.slide_index += 1) {
-            if (state.slide_show.currentSlide().has_fallthrough_successor) continue;
-
-            _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
-
-            try state.renderer.render();
-            try state.window.writeFrameBufferToMemory(slide_mem, channels);
-
-            _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, 4, @ptrCast(slide_mem), state.window.viewport_size_x * 4);
-            print("Dumped slide {} to image file '{s}'.\n", .{slide_number, slide_file_name.items});
-
-            slide_number += 1;
-        }
-
-        state.slide_show.slide_index = current_slide_idx;
+    if (KeyState.isPressed(c.GLFW_KEY_I) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
+        const compress_slides = KeyState.isHeld(c.GLFW_KEY_LEFT_CONTROL);
+        try dumpSlidesPNG(compress_slides);
     }
 
-    // close the window
-    if (keyIsPressed(c.GLFW_KEY_ESCAPE)) {
+    if (KeyState.isPressed(c.GLFW_KEY_ESCAPE)) {
         state.window.close();
     }
 
-    // dump the slides to PDF
-    if (keyIsPressed(c.GLFW_KEY_P) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
-        const compress_slides = true;
+    if (KeyState.isPressed(c.GLFW_KEY_P) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
+        const compress_slides = KeyState.isHeld(c.GLFW_KEY_LEFT_CONTROL);
         try dumpSlidesPDF(compress_slides);
     }
-    if (keyIsPressed(c.GLFW_KEY_L) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
-        const compress_slides = false;
-        try dumpSlidesPDF(compress_slides);
+}
+
+fn dumpSlidesPNG(compress_slides: bool) !void {
+    const current_slide_idx = state.slide_show.slide_index;
+    state.slide_show.slide_index = 0;
+
+    const channels: usize = 4;
+    const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * channels;
+    const slide_mem = try state.allocator.allocSentinel(u8, slide_mem_size, 0);
+    defer state.allocator.free(slide_mem);
+
+    var slide_file_name = String.init(state.allocator);
+    defer slide_file_name.deinit();
+    try slide_file_name.appendSlice(state.slide_show.loadedFileDir());
+    try slide_file_name.append('/');
+    try slide_file_name.appendSlice(state.slide_show.loadedFileNameNoExtension());
+    if (compress_slides) try slide_file_name.appendSlice("_compressed");
+    try slide_file_name.appendSlice("_000.png");
+    try slide_file_name.append(0);
+
+    const number_slice = slide_file_name.items[slide_file_name.items.len-8..slide_file_name.items.len-5];
+    var slide_number: usize = 1;
+
+    while (state.slide_show.slide_index < state.slide_show.slides.items.len) : (state.slide_show.slide_index += 1) {
+        if (state.slide_show.currentSlide().has_fallthrough_successor and compress_slides) continue;
+
+        _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
+
+        try state.renderer.render();
+        try state.window.writeFrameBufferToMemory(slide_mem, channels);
+
+        _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, 4, @ptrCast(slide_mem), state.window.viewport_size_x * 4);
+        print("Dumped slide {} to image file '{s}'.\n", .{slide_number, slide_file_name.items});
+
+        slide_number += 1;
     }
+
+    state.slide_show.slide_index = current_slide_idx;
 }
 
 fn dumpSlidesPDF(compress_slides: bool) !void {
