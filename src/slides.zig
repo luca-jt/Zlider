@@ -399,15 +399,31 @@ pub const Slide = struct {
     }
 };
 
+fn watchCallback(watch_id: c.dmon_watch_id, action: c.dmon_action, root_dir: [*c]const u8, file_path: [*c]const u8, old_file_path: [*c]const u8, user: ?*anyopaque) callconv(.c) void {
+    _ = watch_id;
+    _ = root_dir;
+    _ = old_file_path;
+    _ = user;
+
+    std.debug.assert(state.slide_show.fileIsTracked());
+
+    const is_slide_show_file = std.mem.eql(u8, state.slide_show.loadedFileName(), std.mem.span(file_path));
+    const should_reload = (action == c.DMON_ACTION_MODIFY and is_slide_show_file);
+
+    if (should_reload) reloadSlideShow() catch @panic("unexpected render error");
+}
+
 pub const SlideShow = struct {
     slides: ArrayList(Slide),
     slide_index: usize = 0,
     tracked_file: String,
+    watched_dir_id: ?c.dmon_watch_id = null,
     home_screen_loaded: bool = false,
 
     const Self = @This();
 
     pub fn init() !Self {
+        c.dmon_init();
         return .{
             .slides = ArrayList(Slide).init(state.allocator),
             .tracked_file = String.init(state.allocator),
@@ -432,6 +448,8 @@ pub const SlideShow = struct {
         }
         self.slides.deinit();
         self.tracked_file.deinit();
+
+        c.dmon_deinit();
     }
 
     pub fn loadedFileNameNoExtension(self: *const Self) []const u8 {
@@ -455,7 +473,7 @@ pub const SlideShow = struct {
     }
 
     pub fn fileIsTracked(self: *const Self) bool {
-        return self.tracked_file.items.len > 0;
+        return self.tracked_file.items.len > 0; // when tracking stops, the buffer is cleared
     }
 
     pub fn unloadSlides(self: *Self) void {
@@ -625,15 +643,16 @@ fn unloadSlideShow() void {
     state.window.forceViewportAspectRatio(null);
     state.window.updateViewport(state.window.size_x, state.window.size_y);
     state.renderer.updateMatrices();
-    c.glfwPostEmptyEvent();
+    c.glfwPostEmptyEvent(); // for render refresh
 }
 
-/// called during hot reloading
-pub fn reloadSlideShow() void {
+fn reloadSlideShow() !void {
     std.debug.assert(state.slide_show.fileIsTracked());
+    const slide_index = state.slide_show.slide_index;
     unloadSlideShow();
     state.window.display_black_bars = true;
     loadSlidesFromFile(state.slide_show.tracked_file.items);
+    state.slide_show.slide_index = @min(state.slide_show.slides.items.len - 1, slide_index);
 }
 
 pub fn loadSlideShow(file_path: [:0]const u8) !void {
@@ -646,6 +665,14 @@ pub fn loadSlideShow(file_path: [:0]const u8) !void {
     unloadSlideShow();
     state.window.display_black_bars = true;
     loadSlidesFromFile(full_file_path);
+
+    // init file watcher
+    if (state.slide_show.watched_dir_id != null) c.dmon_unwatch(state.slide_show.watched_dir_id.?);
+    const dir_path = state.slide_show.loadedFileDir();
+    const dir_path_c_string = try state.allocator.allocSentinel(u8, dir_path.len, 0);
+    defer state.allocator.free(dir_path_c_string);
+    @memcpy(dir_path_c_string, dir_path);
+    state.slide_show.watched_dir_id = c.dmon_watch(dir_path_c_string, watchCallback, c.DMON_WATCHFLAGS_FOLLOW_SYMLINKS, null);
 
     // update window title
     var new_title = String.init(state.allocator);
@@ -663,6 +690,8 @@ pub fn loadHomeScreenSlide() void {
     if (state.slide_show.fileIsTracked()) {
         state.slide_show.tracked_file.clearRetainingCapacity();
         state.window.updateTitle(null);
+        c.dmon_unwatch(state.slide_show.watched_dir_id.?);
+        state.slide_show.watched_dir_id = null;
         print("Unloaded slide show file.\n", .{});
     }
     unloadSlideShow();

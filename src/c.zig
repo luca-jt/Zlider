@@ -7,4 +7,5 @@ pub usingnamespace @cImport({
     @cInclude("stb_truetype.h");
     @cInclude("pdfgen.h");
     @cInclude("time.h");
+    @cInclude("dmon.h");
 });

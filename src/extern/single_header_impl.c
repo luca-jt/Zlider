@@ -9,3 +9,6 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
+
+#define DMON_IMPL
+#include "dmon.h"

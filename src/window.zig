@@ -137,6 +137,10 @@ pub const Window = extern struct {
         c.glfwTerminate();
     }
 
+    pub fn swapBuffers(self: *const Self) void {
+        c.glfwSwapBuffers(self.glfw_window);
+    }
+
     pub fn forceViewportAspectRatio(self: *Self, aspect: ?f32) void {
         if (aspect) |forced_aspect| {
             self.forced_viewport_aspect_ratio = forced_aspect;
@@ -307,6 +311,7 @@ fn dumpSlidesPNG(compress_slides: bool) !void {
 
         try state.renderer.render();
         try state.window.writeFrameBufferToMemory(slide_mem, channels);
+        state.window.swapBuffers(); // for animation
 
         _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, 4, @ptrCast(slide_mem), state.window.viewport_size_x * 4);
         print("Dumped slide {} to image file '{s}'.\n", .{slide_number, slide_file_name.items});
@@ -357,6 +362,8 @@ fn dumpSlidesPDF(compress_slides: bool) !void {
 
         try state.renderer.render();
         try state.window.writeFrameBufferToMemory(slide_mem, channels);
+        state.window.swapBuffers(); // for animation
+
         _ = c.pdf_append_page(pdf);
         assert(c.pdf_add_rgb24(pdf, null, 0, 0, pdf_width, pdf_height, slide_mem, @intCast(state.window.viewport_size_x), @intCast(state.window.viewport_size_y)) >= 0);
     }

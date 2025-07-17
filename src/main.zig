@@ -30,7 +30,7 @@ pub fn main() !void {
     while (!state.window.shouldClose()) {
         try win.handleInput();
         try state.renderer.render();
-        c.glfwSwapBuffers(state.window.glfw_window);
+        state.window.swapBuffers();
         c.glfwWaitEvents();
     }
 }

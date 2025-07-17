@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
     exe.addIncludePath(b.path("src/extern"));
     exe.addCSourceFiles(.{
-        .files = &[_][]const u8{"src/extern/stb_impl.c", "src/extern/glad.c", "src/extern/pdfgen.c"},
+        .files = &[_][]const u8{"src/extern/single_header_impl.c", "src/extern/glad.c", "src/extern/pdfgen.c"},
         .flags = &[_][]const u8{"-g", "-O3"},
     });
     exe.addObjectFile(b.path("src/extern/libglfw3.a"));
