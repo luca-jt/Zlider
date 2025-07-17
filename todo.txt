@@ -2,6 +2,4 @@ windows build
 layers
 colored areas on slides
 optional header and footer
-
 resize frame buffer to reference size for dumping with manual resize calls (needs handling of fullscreen)
-to internal png before to pdf with stbi_write_png_to_mem

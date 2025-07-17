@@ -313,7 +313,7 @@ fn dumpSlidesPNG(compress_slides: bool) !void {
         try state.window.writeFrameBufferToMemory(slide_mem, channels);
         state.window.swapBuffers(); // for animation
 
-        _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, 4, @ptrCast(slide_mem), state.window.viewport_size_x * 4);
+        _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, channels, @ptrCast(slide_mem), state.window.viewport_size_x * @as(c_int, channels));
         print("Dumped slide {} to image file '{s}'.\n", .{slide_number, slide_file_name.items});
 
         slide_number += 1;
@@ -365,7 +365,11 @@ fn dumpSlidesPDF(compress_slides: bool) !void {
         state.window.swapBuffers(); // for animation
 
         _ = c.pdf_append_page(pdf);
-        assert(c.pdf_add_rgb24(pdf, null, 0, 0, pdf_width, pdf_height, slide_mem, @intCast(state.window.viewport_size_x), @intCast(state.window.viewport_size_y)) >= 0);
+        var png_len: c_int = undefined;
+        const png = c.stbi_write_png_to_mem(slide_mem, state.window.viewport_size_x * @as(c_int, channels), state.window.viewport_size_x, state.window.viewport_size_y, channels, &png_len);
+        assert(@intFromPtr(png) != 0);
+        defer state.allocator.free(png[0..@intCast(png_len)]);
+        assert(c.pdf_add_image_data(pdf, null, 0, 0, pdf_width, pdf_height, png, @intCast(png_len)) >= 0);
     }
 
     assert(c.pdf_save(pdf, @ptrCast(pdf_file_name.items)) >= 0);
