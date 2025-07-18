@@ -1,9 +1,9 @@
 <div align="center">
-    <img src="src/baked/readme_title.png" width=100% height=100% alt="Zlider" />
-    <h1>Falling Leaf</h1>
+    <img src="src/baked/readme_title.png" width=50% height=50% alt="Zlider" />
 </div>
 
----
+___
+
 A simple slide show program in Zig.
 
 # How to use
