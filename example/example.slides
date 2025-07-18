@@ -8,7 +8,7 @@
 // default slide aspect ratio is 16/9
 // by default black bars are shown at the edges of slides if the aspect ratios don't match
 
-// The text size is always relative to a 1080p screen (height is referenced even when the aspect ratio is different). This is done to retain spacing and scaling when displaying on larger (or smaller) screens.
+// The text size is always relative to a 1080p screen (height is referenced even when the aspect ratio is different). This is done to retain spacing and scaling when displaying on larger (or smaller) screens. When dumping slides to file this reference size is always used for the output.
 
 // This defines a global aspect ratio for all the slides in the slides show.
 aspect_ratio 3_2

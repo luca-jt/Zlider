@@ -12,14 +12,15 @@ pub const default_title: [:0]const u8 = "Zlider";
 pub const initial_window_width: c_int = 800;
 pub const initial_window_height: c_int = 450;
 pub const default_viewport_aspect_ratio: f32 = 16.0 / 9.0;
-pub const default_viewport_resolution_width_reference: f64 = 1920;
-pub var viewport_resolution_width_reference: f64 = default_viewport_resolution_width_reference;
-pub const viewport_resolution_height_reference: f64 = 1080; // never changes
+pub const default_viewport_width_reference: f64 = 1920;
+pub var viewport_width_reference: f64 = default_viewport_width_reference;
+pub const viewport_height_reference: f64 = 1080; // never changes
 
 pub const Window = extern struct {
     glfw_window: ?*c.GLFWwindow = null,
     forced_viewport_aspect_ratio: f32 = default_viewport_aspect_ratio, // (width / height)
     display_black_bars: bool = false,
+    fullscreen: bool = false,
 
     pos_x: c_int = undefined,
     pos_y: c_int = undefined,
@@ -144,10 +145,10 @@ pub const Window = extern struct {
     pub fn forceViewportAspectRatio(self: *Self, aspect: ?f32) void {
         if (aspect) |forced_aspect| {
             self.forced_viewport_aspect_ratio = forced_aspect;
-            viewport_resolution_width_reference = viewport_resolution_height_reference * forced_aspect;
+            viewport_width_reference = viewport_height_reference * forced_aspect;
         } else {
             self.forced_viewport_aspect_ratio = default_viewport_aspect_ratio;
-            viewport_resolution_width_reference = default_viewport_resolution_width_reference;
+            viewport_width_reference = default_viewport_width_reference;
         }
     }
 
@@ -176,16 +177,21 @@ pub const Window = extern struct {
         }
     }
 
-    fn toggleFullscreen(self: *Self) void {
-        const monitor = c.glfwGetPrimaryMonitor();
-        if (c.glfwGetWindowMonitor(self.glfw_window) == null) {
+    /// no desired after state is just a toggle
+    fn setFullscreen(self: *Self, desired: ?bool) void {
+        const after = if (desired) |d| d else !self.fullscreen;
+        if (after == self.fullscreen) return;
+
+        if (!self.fullscreen) {
             self.updatePosition();
             self.updateSize();
+            const monitor = c.glfwGetPrimaryMonitor();
             const mode = c.glfwGetVideoMode(monitor);
             c.glfwSetWindowMonitor(self.glfw_window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
         } else {
             c.glfwSetWindowMonitor(self.glfw_window, null, self.pos_x, self.pos_y, self.size_x, self.size_y, c.GLFW_DONT_CARE);
         }
+        self.fullscreen = !self.fullscreen;
     }
 };
 
@@ -248,7 +254,7 @@ pub fn handleInput() !void {
     KeyState.update();
 
     if (KeyState.isPressed(c.GLFW_KEY_F11)) {
-        state.window.toggleFullscreen();
+        state.window.setFullscreen(null);
     }
 
     if (KeyState.isPressed(c.GLFW_KEY_RIGHT) or KeyState.isPressed(c.GLFW_KEY_DOWN)) {
@@ -284,9 +290,16 @@ pub fn handleInput() !void {
 }
 
 fn dumpSlidesPNG(compress_slides: bool) !void {
+    // save the current state
     const current_slide_idx = state.slide_show.slide_index;
     state.slide_show.slide_index = 0;
+    const old_fullscreen = state.window.fullscreen;
+    state.window.setFullscreen(false);
+    const old_window_width = state.window.size_x;
+    const old_window_height = state.window.size_y;
+    c.glfwSetWindowSize(state.window.glfw_window, @intFromFloat(viewport_width_reference), @intFromFloat(viewport_height_reference));
 
+    // actual work
     const channels: usize = 4;
     const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * channels;
     const slide_mem = try state.allocator.allocSentinel(u8, slide_mem_size, 0);
@@ -319,13 +332,23 @@ fn dumpSlidesPNG(compress_slides: bool) !void {
         slide_number += 1;
     }
 
+    // load the original state
+    c.glfwSetWindowSize(state.window.glfw_window, old_window_width, old_window_height);
+    state.window.setFullscreen(old_fullscreen);
     state.slide_show.slide_index = current_slide_idx;
 }
 
 fn dumpSlidesPDF(compress_slides: bool) !void {
+    // save the current state
     const current_slide_idx = state.slide_show.slide_index;
     state.slide_show.slide_index = 0;
+    const old_fullscreen = state.window.fullscreen;
+    state.window.setFullscreen(false);
+    const old_window_width = state.window.size_x;
+    const old_window_height = state.window.size_y;
+    c.glfwSetWindowSize(state.window.glfw_window, @intFromFloat(viewport_width_reference), @intFromFloat(viewport_height_reference));
 
+    // actual work
     const channels: usize = 3;
     const slide_mem_size = @as(usize, @intCast(state.window.viewport_size_x)) * @as(usize, @intCast(state.window.viewport_size_y)) * channels;
     const slide_mem = try state.allocator.allocSentinel(u8, slide_mem_size, 0);
@@ -375,5 +398,9 @@ fn dumpSlidesPDF(compress_slides: bool) !void {
     assert(c.pdf_save(pdf, @ptrCast(pdf_file_name.items)) >= 0);
     print("Dumped slide show to PDF file: '{s}'.\n", .{ pdf_file_name.items });
     c.pdf_destroy(pdf);
+
+    // load the original state
+    c.glfwSetWindowSize(state.window.glfw_window, old_window_width, old_window_height);
+    state.window.setFullscreen(old_fullscreen);
     state.slide_show.slide_index = current_slide_idx;
 }

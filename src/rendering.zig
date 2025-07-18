@@ -390,7 +390,7 @@ pub const Renderer = struct {
             const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent);
             const sourced_font_size = section.text_size * font_render_size_multiplier;
             const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / @as(f64, @floatFromInt(sourced_font_size)); // needed as we are not sourcing the font size that is displayed
-            const inverse_viewport_height = 1.0 / win.viewport_resolution_height_reference; // y-axis as scale reference
+            const inverse_viewport_height = 1.0 / win.viewport_height_reference; // y-axis as scale reference
             const font_scale = @as(f64, @floatFromInt(sourced_font_size)) / line_height;
 
             const yadvance_font: f64 = -(line_height + @as(f64, @floatFromInt(font_data.line_gap))) * section.line_spacing; // in font units (analogous to the xadvance in font data but generic)
@@ -424,7 +424,7 @@ pub const Renderer = struct {
 
                                 // We don't know wether or not the line fits on the whole screen.
                                 // If we encounter a word that won't fit, we render the stuff that does and go to the next line while skipping the space in between.
-                                if (line_width + additional_width > win.viewport_resolution_width_reference - 2 * min_x_start) break;
+                                if (line_width + additional_width > win.viewport_width_reference - 2 * min_x_start) break;
 
                                 line_width += additional_width;
                                 line_to_render_len += 1 + word.len; // don't forget the space
@@ -435,8 +435,8 @@ pub const Renderer = struct {
                             line_to_render_start += line_to_render_len + 1; // advance the start of the rest of the line to render for the next iteration (the +1 is for the space that didn't get rendered)
 
                             cursor_x = switch (section.alignment) {
-                                .center => (win.viewport_resolution_width_reference - line_width) / 2,
-                                .right => win.viewport_resolution_width_reference - line_width - min_x_start,
+                                .center => (win.viewport_width_reference - line_width) / 2,
+                                .right => win.viewport_width_reference - line_width - min_x_start,
                                 .left => min_x_start,
                             };
 
@@ -483,8 +483,8 @@ pub const Renderer = struct {
                         .file_drop_image => self.file_drop_image.?,
                     };
                     cursor_x = switch (section.alignment) {
-                        .center => (win.viewport_resolution_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale) / 2,
-                        .right => win.viewport_resolution_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale - min_x_start,
+                        .center => (win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale) / 2,
+                        .right => win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale - min_x_start,
                         .left => min_x_start,
                     };
 

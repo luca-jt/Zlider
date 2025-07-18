@@ -1,4 +1,4 @@
+slide templates
 layers
 colored areas on slides
 optional header and footer
-resize frame buffer to reference size for dumping with manual resize calls (needs handling of fullscreen)
