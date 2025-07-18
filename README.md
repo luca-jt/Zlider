@@ -38,6 +38,7 @@ Once there is an attempt to load a slide show file, it will be tracked and hot r
 ## Targets
 - Linux
 - Windows 64
+
 This is made possible because the project already ships most external dependency files such that you don't have to get them yourself. There are also some custom modifications that are possible because of that.
 
 > [!Warning]
