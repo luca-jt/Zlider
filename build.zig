@@ -23,7 +23,8 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
     switch (target.result.os.tag) {
-        .macos, .linux => exe.addObjectFile(b.path("src/extern/libglfw3.a")),
+        .linux => exe.addObjectFile(b.path("src/extern/libglfw3.a")),
+        .macos => exe.addObjectFile(b.path("src/extern/libglfw3-macos.a")),
         .windows => {
             exe.addObjectFile(b.path("src/extern/libglfw3-win64.a"));
             exe.linkSystemLibrary("gdi32");
