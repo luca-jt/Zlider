@@ -22,7 +22,7 @@ Here is a complete list:
 | Keyword | Semantics |
 | :------ | :-------- |
 | aspect_ratio | Defines the aspect ratio of all the slides in a slide show. |
-| black_bars | Flag to enable or disable black bars on the edges of the slides if the aspect ratios don't match. |
+| black_bars | Flag to enable or disable black bars on the edges of the slides if aspect ratios don't match. |
 | bg | Defines the background color of the slides with a hex value. |
 | text_color | Defines the text color to be used with a hex value. |
 | text_size | Defines the text size to be used. |
