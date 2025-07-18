@@ -22,12 +22,19 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
+    switch (target.result.os.tag) {
+        .macos, .linux => exe.addObjectFile(b.path("src/extern/libglfw3.a")),
+        .windows => {
+            exe.addObjectFile(b.path("src/extern/libglfw3-win64.a"));
+            exe.linkSystemLibrary("gdi32");
+        },
+        else => @panic("OS not supported."),
+    }
     exe.addIncludePath(b.path("src/extern"));
     exe.addCSourceFiles(.{
         .files = &[_][]const u8{"src/extern/single_header_impl.c", "src/extern/glad.c", "src/extern/pdfgen.c"},
         .flags = &[_][]const u8{"-g", "-O3"},
     });
-    exe.addObjectFile(b.path("src/extern/libglfw3.a"));
 
     b.installArtifact(exe);
 
