@@ -177,7 +177,7 @@ pub const Window = extern struct {
         }
     }
 
-    /// no desired after state is just a toggle
+    /// no desired after-state is just a toggle
     fn setFullscreen(self: *Self, desired: ?bool) void {
         const after = if (desired) |d| d else !self.fullscreen;
         if (after == self.fullscreen) return;
@@ -185,13 +185,71 @@ pub const Window = extern struct {
         if (!self.fullscreen) {
             self.updatePosition();
             self.updateSize();
-            const monitor = c.glfwGetPrimaryMonitor();
+            const monitor = self.getWindowMonitor();
             const mode = c.glfwGetVideoMode(monitor);
-            c.glfwSetWindowMonitor(self.glfw_window, monitor, 0, 0, mode[0].width, mode[0].height, c.GLFW_DONT_CARE);
+            c.glfwSetWindowMonitor(self.glfw_window, monitor, 0, 0, mode.*.width, mode.*.height, c.GLFW_DONT_CARE);
         } else {
             c.glfwSetWindowMonitor(self.glfw_window, null, self.pos_x, self.pos_y, self.size_x, self.size_y, c.GLFW_DONT_CARE);
         }
         self.fullscreen = !self.fullscreen;
+    }
+
+    /// get the monitor the window is currently on
+    fn getWindowMonitor(self: *Self) *c.GLFWmonitor {
+        var monitor: ?*c.GLFWmonitor = null;
+        var max_overlap_area: c_int = 0;
+
+        var monitors_size: c_int = undefined;
+        const monitors = c.glfwGetMonitors(&monitors_size);
+
+        for (0..@intCast(monitors_size)) |i| {
+            var monitor_pos_x: c_int = undefined;
+            var monitor_pos_y: c_int = undefined;
+            c.glfwGetMonitorPos(monitors[i], &monitor_pos_x, &monitor_pos_y);
+
+            const monitor_video_mode = c.glfwGetVideoMode(monitors[i]);
+            const monitor_size_x: c_int = monitor_video_mode.*.width;
+            const monitor_size_y: c_int = monitor_video_mode.*.height;
+
+            const window_intersects_monitor = !(
+                self.pos_x + self.size_x < monitor_pos_x or
+                self.pos_x > monitor_pos_x + monitor_size_x or
+                self.pos_y + self.size_y < monitor_pos_y or
+                self.pos_y > monitor_pos_y + monitor_size_y
+            );
+
+            if (window_intersects_monitor) {
+                const intersect_size_x = if (self.pos_x < monitor_pos_x)
+                    if (self.pos_x + self.size_x < monitor_pos_x + monitor_size_x)
+                        self.pos_x + self.size_x - monitor_pos_x
+                    else
+                        monitor_size_x
+                else
+                    if (monitor_pos_x + monitor_size_x < self.pos_x + self.size_x)
+                        (monitor_pos_x + monitor_size_x) - self.pos_x
+                    else
+                        self.size_x;
+
+                const intersect_size_y = if (self.pos_y < monitor_pos_y)
+                    if (self.pos_y + self.size_y < monitor_pos_y + monitor_size_y)
+                        self.pos_y + self.size_y - monitor_pos_y
+                    else
+                        monitor_size_y
+                else
+                    if (monitor_pos_y + monitor_size_y < self.pos_y + self.size_y)
+                        monitor_pos_y + monitor_size_y - self.pos_y
+                    else
+                        self.size_y;
+
+                const overlap_area = intersect_size_x * intersect_size_y;
+
+                if (overlap_area > max_overlap_area) {
+                    monitor = monitors[i];
+                    max_overlap_area = overlap_area;
+                }
+            }
+        }
+        return monitor.?;
     }
 };
 

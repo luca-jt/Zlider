@@ -3,7 +3,7 @@ A simple slide show program in Zig.
 
 # How to use
 - load a slide show file as a **command line** argument or **drag and drop** a file into the window
-- toggle fullscreen with **F11**
+- toggle fullscreen with **F11** (there are some issues with choosing the correct monitor on linux wayland as it does not expose the window position)
 - navigate the slides with the **arrow keys**
 - dump the slides as PNG files with **I** (files are stored in the directory of the slide show file)
 - dump the slides as a PDF file with **P** (file is stored in the directory of the slide show file)
