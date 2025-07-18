@@ -43,5 +43,4 @@ Once there is an attempt to load a slide show file, it will be tracked and hot r
 This is made possible because the project already ships most external dependency files such that you don't have to get them yourself. There are also some custom modifications that are possible because of that.
 
 > [!Warning]
-> The build works for both Linux and Windows, but the actual program is only tested on Linux for now. The build on MacOS is not tested.
-> Other targets might require some work. PRs are welcome.
+> The build works for both Linux and Windows, but the actual program is only tested on Linux for now. The build on MacOS is not tested. Other targets might require some work. PRs are welcome.
