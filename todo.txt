@@ -1,4 +1,5 @@
 slide templates
 layers
 colored areas on slides
-optional header and footer
+footer alignment
+line numbers are messed up in lexer + crash on reload

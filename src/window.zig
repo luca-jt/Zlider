@@ -271,9 +271,7 @@ fn dropCallback(window: ?*c.GLFWwindow, path_count: c_int, paths: [*c][*c]const 
     if (path_count != 1) return;
     const path: [:0]const u8 = std.mem.span(paths[0]); // assumed to be null-terminated
 
-    state.renderer.clear();
     slides.loadSlideShow(path) catch @panic("allocation error");
-    state.renderer.loadSlideData();
 }
 
 const KeyState = struct {
@@ -327,12 +325,10 @@ pub fn handleInput() !void {
     }
 
     if (KeyState.isPressed(c.GLFW_KEY_C) and state.slide_show.fileIsTracked()) {
-        state.renderer.clear();
         slides.loadHomeScreenSlide();
-        state.renderer.loadSlideData();
     }
 
-    if (KeyState.isPressed(c.GLFW_KEY_I) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
+    if (KeyState.isPressed(c.GLFW_KEY_I) and state.slide_show.fileIsTracked() and state.slide_show.containsSlides()) {
         const compress_slides = KeyState.isHeld(c.GLFW_KEY_LEFT_CONTROL);
         try dumpSlidesPNG(compress_slides);
     }
@@ -341,7 +337,7 @@ pub fn handleInput() !void {
         state.window.close();
     }
 
-    if (KeyState.isPressed(c.GLFW_KEY_P) and state.slide_show.fileIsTracked() and state.slide_show.slides.items.len > 0) {
+    if (KeyState.isPressed(c.GLFW_KEY_P) and state.slide_show.fileIsTracked() and state.slide_show.containsSlides()) {
         const compress_slides = KeyState.isHeld(c.GLFW_KEY_LEFT_CONTROL);
         try dumpSlidesPDF(compress_slides);
     }
@@ -376,7 +372,7 @@ fn dumpSlidesPNG(compress_slides: bool) !void {
     var slide_number: usize = 1;
 
     while (state.slide_show.slide_index < state.slide_show.slides.items.len) : (state.slide_show.slide_index += 1) {
-        if (state.slide_show.currentSlide().has_fallthrough_successor and compress_slides) continue;
+        if (state.slide_show.currentSlide().?.has_fallthrough_successor and compress_slides) continue;
 
         _ = std.fmt.bufPrintIntToSlice(number_slice, slide_number, 10, .lower, .{ .width = 3, .fill = '0' });
 
@@ -439,7 +435,7 @@ fn dumpSlidesPDF(compress_slides: bool) !void {
     const pdf = c.pdf_create(pdf_width, pdf_height, &pdf_info);
 
     while (state.slide_show.slide_index < state.slide_show.slides.items.len) : (state.slide_show.slide_index += 1) {
-        if (state.slide_show.currentSlide().has_fallthrough_successor and compress_slides) continue;
+        if (state.slide_show.currentSlide().?.has_fallthrough_successor and compress_slides) continue;
 
         try state.renderer.render();
         try state.window.writeFrameBufferToMemory(slide_mem, channels);

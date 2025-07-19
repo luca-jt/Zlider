@@ -24,6 +24,10 @@ pub const Keyword = enum(usize) {
     file_drop_image,
     aspect_ratio,
     black_bars,
+    header,
+    footer,
+    no_header,
+    no_footer,
 };
 
 pub const Token = union(enum) {
@@ -43,16 +47,10 @@ pub const Token = union(enum) {
     file_drop_image,
     aspect_ratio: f32,
     black_bars: bool,
-};
-
-pub const SlidesParseError = error {
-    LexerNoClosingKeyword,
-    LexerUnknownKeyword,
-    LexerInvalidToken,
-    EmptySlide,
-    TooManySlides,
-    InvalidFile,
-    ImageInInternalSource,
+    header,
+    footer,
+    no_header,
+    no_footer,
 };
 
 const Lexer = struct {
@@ -158,7 +156,7 @@ const Lexer = struct {
                             break :blk .{ .text_color = color };
                         } else {
                             print("Line {}: '{s}' | ", .{ self.line, color_string });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         }
                     },
                     .bg => blk: {
@@ -168,7 +166,7 @@ const Lexer = struct {
                             break :blk .{ .bg = color };
                         } else {
                             print("Line {}: '{s}' | ", .{ self.line, color_string });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         }
                     },
                     .slide => blk: {
@@ -196,7 +194,7 @@ const Lexer = struct {
                             line = self.readUntilNewLine();
                         } else {
                             print("Line {}: 'text' | ", .{self.line});
-                            return SlidesParseError.LexerNoClosingKeyword;
+                            return error.LexerNoClosingKeyword;
                         }
                         _ = text.pop(); // remove the trailing line break if present
                         break :blk .{ .text = text };
@@ -205,7 +203,7 @@ const Lexer = struct {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
                             print("Line {}: '{s}' | ", .{ self.line, int_string });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         };
                         break :blk .{ .space = parsed_int };
                     },
@@ -213,14 +211,14 @@ const Lexer = struct {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
                             print("Line {}: '{s}' | ", .{ self.line, int_string });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         };
                         break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
                         if (self.file_dir == null) {
                             print("Line {}: | ", .{ self.line });
-                            return SlidesParseError.ImageInInternalSource;
+                            return error.ImageInInternalSource;
                         }
 
                         const path_slice = self.readNextWord();
@@ -242,7 +240,7 @@ const Lexer = struct {
                         const scale_slice = self.readNextWord();
                         const parsed_scale = std.fmt.parseFloat(f32, scale_slice) catch {
                             print("Line {}: '{s}' | ", .{ self.line, scale_slice });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         };
                         break :blk .{ .image_scale = parsed_scale };
                     },
@@ -250,7 +248,7 @@ const Lexer = struct {
                         const spacing_slice = self.readNextWord();
                         const parsed_spacing = std.fmt.parseFloat(f64, spacing_slice) catch {
                             print("Line {}: '{s}' | ", .{ self.line, spacing_slice });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         };
                         break :blk .{ .line_spacing = parsed_spacing };
                     },
@@ -264,7 +262,7 @@ const Lexer = struct {
                         else if (std.mem.eql(u8, font_slice, "monospace"))
                             .monospace
                         else
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
 
                         break :blk .{ .font_style = font_style };
                     },
@@ -276,26 +274,26 @@ const Lexer = struct {
                         const width = if (number_it.next()) |num_slice|
                             std.fmt.parseInt(u8, num_slice, 10) catch {
                                 print("Line {}: '{s}' | ", .{ self.line, num_slice });
-                                return SlidesParseError.LexerInvalidToken;
+                                return error.LexerInvalidToken;
                             }
                         else {
                             print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         };
 
                         const height = if (number_it.next()) |num_slice|
                             std.fmt.parseInt(u8, num_slice, 10) catch {
                                 print("Line {}: '{s}' | ", .{ self.line, num_slice });
-                                return SlidesParseError.LexerInvalidToken;
+                                return error.LexerInvalidToken;
                             }
                         else {
                             print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         };
 
                         if (number_it.next() != null) {
                             print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         }
 
                         const ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
@@ -309,17 +307,21 @@ const Lexer = struct {
                             false
                         else {
                             print("Line {}: '{s}' | ", .{ self.line, flag_slice });
-                            return SlidesParseError.LexerInvalidToken;
+                            return error.LexerInvalidToken;
                         };
                         break :blk .{ .black_bars = flag_value };
                     },
+                    .header => .header,
+                    .footer => .footer,
+                    .no_header => .no_header,
+                    .no_footer => .no_footer,
                 };
                 break;
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
                 _ = self.readUntilNewLine();
             } else {
                 print("Line {}: '{s}' | ", .{ self.line, next_word });
-                return SlidesParseError.LexerUnknownKeyword;
+                return error.LexerUnknownKeyword;
             }
         }
         return token;
@@ -376,11 +378,26 @@ pub const Section = struct {
         }
         return copy;
     }
+
+    fn deinit(self: *Self) void {
+        switch (self.section_type) {
+            .image => |image_source| {
+                switch (image_source) {
+                    .path => |path| path.deinit(),
+                    .file_drop_image => {},
+                }
+            },
+            .text => |text| text.deinit(),
+            else => {},
+        }
+    }
 };
 
 pub const Slide = struct {
     background_color: data.Color32 = @bitCast(@as(u32, 0xFFFFFFFF)),
     has_fallthrough_successor: bool = false,
+    exclude_header: bool = false,
+    exclude_footer: bool = false,
     sections: ArrayList(Section),
 
     const Self = @This();
@@ -396,6 +413,13 @@ pub const Slide = struct {
             section.* = try section.clone();
         }
         return copy;
+    }
+
+    fn deinit(self: *Self) void {
+        for (self.sections.items) |*section| {
+            section.deinit();
+        }
+        self.sections.deinit();
     }
 };
 
@@ -415,6 +439,8 @@ fn watchCallback(watch_id: c.dmon_watch_id, action: c.dmon_action, root_dir: [*c
 
 pub const SlideShow = struct {
     slides: ArrayList(Slide),
+    header: ArrayList(Section),
+    footer: ArrayList(Section),
     slide_index: usize = 0,
     tracked_file: String,
     watched_dir_id: ?c.dmon_watch_id = null,
@@ -426,29 +452,29 @@ pub const SlideShow = struct {
         c.dmon_init();
         return .{
             .slides = ArrayList(Slide).init(state.allocator),
+            .header = ArrayList(Section).init(state.allocator),
+            .footer = ArrayList(Section).init(state.allocator),
             .tracked_file = String.init(state.allocator),
         };
     }
 
     pub fn deinit(self: Self) void {
         for (self.slides.items) |*slide| {
-            for (slide.sections.items) |*section| {
-                switch (section.section_type) {
-                    .image => |image_source| {
-                        switch (image_source) {
-                            .path => |path| path.deinit(),
-                            .file_drop_image => {},
-                        }
-                    },
-                    .text => |text| text.deinit(),
-                    else => {},
-                }
-            }
-            slide.sections.deinit();
+            slide.deinit();
         }
         self.slides.deinit();
-        self.tracked_file.deinit();
 
+        for (self.header.items) |*section| {
+            section.deinit();
+        }
+        self.header.deinit();
+
+        for (self.footer.items) |*section| {
+            section.deinit();
+        }
+        self.footer.deinit();
+
+        self.tracked_file.deinit();
         c.dmon_deinit();
     }
 
@@ -477,31 +503,32 @@ pub const SlideShow = struct {
     }
 
     pub fn unloadSlides(self: *Self) void {
+        for (self.header.items) |*section| {
+            section.deinit();
+        }
+        self.header.clearRetainingCapacity();
+
+        for (self.footer.items) |*section| {
+            section.deinit();
+        }
+        self.footer.clearRetainingCapacity();
+
         for (self.slides.items) |*slide| {
-            for (slide.sections.items) |*section| {
-                switch (section.section_type) {
-                    .image => |image_source| {
-                        switch (image_source) {
-                            .path => |path| path.deinit(),
-                            .file_drop_image => {},
-                        }
-                    },
-                    .text => |text| text.deinit(),
-                    else => {},
-                }
-            }
-            slide.sections.deinit();
+            slide.deinit();
         }
         self.slides.clearRetainingCapacity();
         self.slide_index = 0;
     }
 
-    pub fn currentSlide(self: *const Self) *Slide {
-        return &self.slides.items[self.slide_index];
+    pub fn currentSlide(self: *const Self) ?*Slide {
+        return if (self.containsSlides()) &self.slides.items[self.slide_index] else null;
+    }
+
+    pub fn containsSlides(self: *const Self) bool {
+        return self.slides.items.len > 0;
     }
 
     fn newSlide(self: *Self, slide: *Slide, is_fallthrough: bool) !void {
-        const bg_color = slide.background_color;
         if (is_fallthrough) {
             const slide_clone = try slide.clone();
             slide.has_fallthrough_successor = true;
@@ -509,29 +536,24 @@ pub const SlideShow = struct {
             slide.* = slide_clone;
         } else {
             try self.slides.append(slide.*);
+            const bg_color = slide.background_color;
             slide.* = Slide.init();
+            slide.background_color = bg_color;
         }
-        slide.background_color = bg_color;
     }
 };
 
-fn newSection(slide: *Slide, section: *Section) !void {
-    const text_size = section.text_size;
-    const text_color = section.text_color;
-    const alignment = section.alignment;
-    const image_scale = section.image_scale;
-    const line_spacing = section.line_spacing;
-    const font_style = section.font_style;
+const SectionLocation = union(enum) {
+    slide: *Slide,
+    marginal: *ArrayList(Section), // header/footer
+};
 
-    try slide.sections.append(section.*);
-
-    section.* = Section{ .section_type = undefined };
-    section.text_size = text_size;
-    section.text_color = text_color;
-    section.alignment = alignment;
-    section.image_scale = image_scale;
-    section.line_spacing = line_spacing;
-    section.font_style = font_style;
+fn addSection(location: SectionLocation, section: *Section) !void {
+    switch (location) {
+        .slide => |slide| try slide.sections.append(section.*),
+        .marginal => |marginal| try marginal.append(section.*),
+    }
+    section.section_type = undefined;
 }
 
 fn parseSlideShow(file_contents: []const u8) !void {
@@ -544,6 +566,8 @@ fn parseSlideShow(file_contents: []const u8) !void {
     var slide = Slide.init();
     errdefer slide.sections.deinit();
     var section = Section{ .section_type = undefined };
+    var header_defined = false;
+    var footer_defined = false;
 
     while (try lexer.nextToken()) |token| {
         switch (token) {
@@ -551,12 +575,16 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 section.text_color = color;
             },
             .bg => |color| {
+                if (header_defined or footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.BackgroundColorInMarginal;
+                }
                 slide.background_color = color;
             },
             .slide => |is_fallthrough| {
-                if (slide.sections.items.len == 0) {
-                    print("Line: {} | ", .{lexer.line});
-                    return SlidesParseError.EmptySlide;
+                if (header_defined or footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.SlideAfterMarginalDefinition;
                 }
                 try state.slide_show.newSlide(&slide, is_fallthrough);
             },
@@ -570,20 +598,41 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 section.alignment = .right;
             },
             .text => |string| {
+                const location: SectionLocation = if (footer_defined)
+                    .{ .marginal = &state.slide_show.footer }
+                else if (header_defined)
+                    .{ .marginal = &state.slide_show.header }
+                else
+                    .{ .slide = &slide };
+
                 section.section_type = .{ .text = string };
-                try newSection(&slide, &section);
+                try addSection(location, &section);
             },
             .space => |lines| {
+                const location: SectionLocation = if (footer_defined)
+                    .{ .marginal = &state.slide_show.footer }
+                else if (header_defined)
+                    .{ .marginal = &state.slide_show.header }
+                else
+                    .{ .slide = &slide };
+
                 section.section_type = .{ .space = lines };
-                try newSection(&slide, &section);
+                try addSection(location, &section);
             },
             .text_size => |number| {
                 section.text_size = number;
             },
             .image => |*path| {
+                const location: SectionLocation = if (footer_defined)
+                    .{ .marginal = &state.slide_show.footer }
+                else if (header_defined)
+                    .{ .marginal = &state.slide_show.header }
+                else
+                    .{ .slide = &slide };
+
                 section.section_type = .{ .image = .{ .path = path.* } };
                 try section.section_type.image.path.append(0); // for c interop later on
-                try newSection(&slide, &section);
+                try addSection(location, &section);
             },
             .image_scale => |scale| {
                 section.image_scale = scale;
@@ -595,31 +644,74 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 section.font_style = style;
             },
             .file_drop_image => {
+                const location: SectionLocation = if (footer_defined)
+                    .{ .marginal = &state.slide_show.footer }
+                else if (header_defined)
+                    .{ .marginal = &state.slide_show.header }
+                else
+                    .{ .slide = &slide };
+
                 section.section_type = .{ .image = .file_drop_image };
-                try newSection(&slide, &section);
+                try addSection(location, &section);
             },
             .aspect_ratio => |ratio| {
+                if (header_defined or footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.AspectRatioInMarginal;
+                }
                 state.window.forceViewportAspectRatio(ratio);
                 state.window.updateViewport(state.window.size_x, state.window.size_y);
                 state.renderer.updateMatrices();
                 c.glfwPostEmptyEvent();
             },
             .black_bars => |flag| {
+                if (header_defined or footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.BlackBarsInMarginal;
+                }
                 state.window.display_black_bars = flag;
                 state.window.updateViewport(state.window.size_x, state.window.size_y);
                 c.glfwPostEmptyEvent();
-            }
+            },
+            .header => {
+                if (header_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.MultipleHeaders;
+                }
+                if (footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.HeaderDefinitionAfterFooter;
+                }
+                header_defined = true;
+            },
+            .footer => {
+                if (footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.MultipleFooters;
+                }
+                footer_defined = true;
+            },
+            .no_header => {
+                if (header_defined or footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.NoHeaderInMarginal;
+                }
+                slide.exclude_header = true;
+            },
+            .no_footer => {
+                if (header_defined or footer_defined) {
+                    print("Line {}: ", .{ lexer.line });
+                    return error.NoFooterInMarginal;
+                }
+                slide.exclude_footer = true;
+            },
         }
     }
 
     // create the last slide
-    if (slide.sections.items.len == 0) {
-        print("Line: {} | ", .{lexer.line});
-        return SlidesParseError.EmptySlide;
-    }
     try state.slide_show.slides.append(slide);
 
-    if (state.slide_show.slides.items.len > 999) return SlidesParseError.TooManySlides;
+    if (state.slide_show.slides.items.len > 999) return error.TooManySlides;
 }
 
 fn loadSlidesFromFile(file_path: []const u8) void {
@@ -629,11 +721,15 @@ fn loadSlidesFromFile(file_path: []const u8) void {
     };
     defer file_contents.deinit();
 
+    state.window.display_black_bars = true;
+
     parseSlideShow(file_contents.items) catch |e| {
         print("Error: {s}", .{@errorName(e)});
         print("\nUnable to parse slide show file: {s}\n", .{file_path});
         return;
     };
+    state.renderer.loadSlideData();
+
     print("Successfully loaded slide show file: '{s}'.\n", .{file_path});
 }
 
@@ -643,16 +739,18 @@ fn unloadSlideShow() void {
     state.window.forceViewportAspectRatio(null);
     state.window.updateViewport(state.window.size_x, state.window.size_y);
     state.renderer.updateMatrices();
+    state.renderer.clear();
     c.glfwPostEmptyEvent(); // for render refresh
 }
 
 fn reloadSlideShow() !void {
     std.debug.assert(state.slide_show.fileIsTracked());
     const slide_index = state.slide_show.slide_index;
+
     unloadSlideShow();
-    state.window.display_black_bars = true;
     loadSlidesFromFile(state.slide_show.tracked_file.items);
-    state.slide_show.slide_index = @min(state.slide_show.slides.items.len - 1, slide_index);
+
+    state.slide_show.slide_index = @min(state.slide_show.slides.items.len, slide_index + 1) - 1;
 }
 
 pub fn loadSlideShow(file_path: [:0]const u8) !void {
@@ -663,7 +761,6 @@ pub fn loadSlideShow(file_path: [:0]const u8) !void {
     try state.slide_show.tracked_file.appendSlice(full_file_path);
 
     unloadSlideShow();
-    state.window.display_black_bars = true;
     loadSlidesFromFile(full_file_path);
 
     // init file watcher
@@ -699,4 +796,5 @@ pub fn loadHomeScreenSlide() void {
     parseSlideShow(data.home_screen_slide) catch |e| {
         print("Error: {s}\n", .{@errorName(e)});
     };
+    state.renderer.loadSlideData();
 }

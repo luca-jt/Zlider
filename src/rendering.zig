@@ -3,6 +3,7 @@ const data = @import("data.zig");
 const win = @import("window.zig");
 const state = @import("state.zig");
 const lina = @import("linalg.zig");
+const slides = @import("slides.zig");
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
 const HashMap = std.AutoHashMap;
@@ -322,191 +323,221 @@ pub const Renderer = struct {
         self.view = lina.Mat4.lookAt(lina.vec3(0.5 * viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * viewport_ratio, -0.5, 0.0), lina.Vec3.unitY);
     }
 
+    fn loadSectionData(self: *Self, section: *const slides.Section) void {
+        switch (section.section_type) {
+            .image => |image_source| {
+                switch (image_source) {
+                    .path => |*path| {
+                        if (self.images.contains(path.items)) return;
+
+                        var width: c_int = undefined;
+                        var height: c_int = undefined;
+                        var num_channels: c_int = undefined;
+                        const desired_channels: c_int = 4;
+                        const image = c.stbi_load(@ptrCast(path.items), &width, &height, &num_channels, desired_channels);
+                        std.debug.assert(num_channels == desired_channels);
+
+                        const tex_id = generateTexture(image, width, height);
+                        c.stbi_image_free(image);
+                        const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
+                        self.images.put(path.items, image_data) catch @panic("allocation error");
+                    },
+                    .file_drop_image => {
+                        if (self.file_drop_image != null) return;
+
+                        var width: c_int = undefined;
+                        var height: c_int = undefined;
+                        var num_channels: c_int = undefined;
+                        const desired_channels: c_int = 4;
+                        const image = c.stbi_load_from_memory(@ptrCast(data.file_drop_image), data.file_drop_image.len, &width, &height, &num_channels, desired_channels);
+                        std.debug.assert(num_channels == desired_channels);
+
+                        const tex_id = generateTexture(image, width, height);
+                        c.stbi_image_free(image);
+                        self.file_drop_image = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
+                    },
+                }
+            },
+            .text => {
+                const font_data = switch (section.font_style) {
+                    .serif => &self.serif_font_data,
+                    .sans_serif => &self.sans_serif_font_data,
+                    .monospace => &self.monospace_font_data,
+                };
+                font_data.loadFont(section.text_size);
+            },
+            .space => {},
+        }
+    }
+
     pub fn loadSlideData(self: *Self) void {
         for (state.slide_show.slides.items) |*slide| {
             for (slide.sections.items) |*section| {
-                switch (section.section_type) {
-                    .image => |image_source| {
-                        switch (image_source) {
-                            .path => |*path| {
-                                if (self.images.contains(path.items)) continue;
-
-                                var width: c_int = undefined;
-                                var height: c_int = undefined;
-                                var num_channels: c_int = undefined;
-                                const desired_channels: c_int = 4;
-                                const image = c.stbi_load(@ptrCast(path.items), &width, &height, &num_channels, desired_channels);
-                                std.debug.assert(num_channels == desired_channels);
-
-                                const tex_id = generateTexture(image, width, height);
-                                c.stbi_image_free(image);
-                                const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
-                                self.images.put(path.items, image_data) catch @panic("allocation error");
-                            },
-                            .file_drop_image => {
-                                if (self.file_drop_image != null) continue;
-
-                                var width: c_int = undefined;
-                                var height: c_int = undefined;
-                                var num_channels: c_int = undefined;
-                                const desired_channels: c_int = 4;
-                                const image = c.stbi_load_from_memory(@ptrCast(data.file_drop_image), data.file_drop_image.len, &width, &height, &num_channels, desired_channels);
-                                std.debug.assert(num_channels == desired_channels);
-
-                                const tex_id = generateTexture(image, width, height);
-                                c.stbi_image_free(image);
-                                self.file_drop_image = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
-                            },
-                        }
-                    },
-                    .text => {
-                        const font_data = switch (section.font_style) {
-                            .serif => &self.serif_font_data,
-                            .sans_serif => &self.sans_serif_font_data,
-                            .monospace => &self.monospace_font_data,
-                        };
-                        font_data.loadFont(section.text_size);
-                    },
-                    .space => {},
-                }
+                self.loadSectionData(section);
             }
+        }
+        for (state.slide_show.header.items) |*section| {
+            self.loadSectionData(section);
+        }
+        for (state.slide_show.footer.items) |*section| {
+            self.loadSectionData(section);
         }
     }
 
     pub fn render(self: *Self) !void {
-        const slide = state.slide_show.currentSlide();
-        state.window.clearScreen(slide.background_color);
+        const slide_opt = state.slide_show.currentSlide();
+        const clear_color = if (slide_opt) |s| s.background_color else comptime data.Color32.fromHex("0x2C2E34FF").?;
+        state.window.clearScreen(clear_color);
 
-        const min_x_start: f64 = 10; // in pixels
-        var cursor_x: f64 = min_x_start; // x position in pixel units
+        if (slide_opt == null) return;
+        const slide = slide_opt.?;
+
+        var cursor_x: f64 = cursor_min_x_start; // x position in pixel units
         var cursor_y: f64 = 0; // y baseline position in pixel units
 
+        // render the header
+        if (!slide.exclude_header) {
+            for (state.slide_show.header.items) |*section| {
+                try self.renderSection(section, &cursor_x, &cursor_y);
+            }
+        }
+        // render the slide contents
         for (slide.sections.items) |*section| {
-            const font_data = switch (section.font_style) {
-                .serif => &self.serif_font_data,
-                .sans_serif => &self.sans_serif_font_data,
-                .monospace => &self.monospace_font_data,
-            };
-            const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent);
-            const sourced_font_size = section.text_size * font_render_size_multiplier;
-            const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / @as(f64, @floatFromInt(sourced_font_size)); // needed as we are not sourcing the font size that is displayed
-            const inverse_viewport_height = 1.0 / win.viewport_height_reference; // y-axis as scale reference
-            const font_scale = @as(f64, @floatFromInt(sourced_font_size)) / line_height;
+            try self.renderSection(section, &cursor_x, &cursor_y);
+        }
+        // render the footer
+        if (!slide.exclude_footer) {
+            for (state.slide_show.footer.items) |*section| {
+                try self.renderSection(section, &cursor_x, &cursor_y);
+            }
+        }
 
-            const yadvance_font: f64 = -(line_height + @as(f64, @floatFromInt(font_data.line_gap))) * section.line_spacing; // in font units (analogous to the xadvance in font data but generic)
-            const yadvance = yadvance_font * font_scale * font_display_scale; // this is the specific yadvance accounting for font sizes
+        self.flush();
+    }
 
-            switch (section.section_type) {
-                .space => |lines| {
-                    cursor_y += yadvance * @as(f64, @floatFromInt(lines));
-                },
-                .text => |text| {
-                    const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
-                    const tex_id: c.GLuint = font_storage.texture;
-                    const space_width = charFontWidth(' ', &font_storage, font_display_scale);
-                    var line_iterator = data.SplitIterator{ .string = text.items, .delimiter = '\n' };
+    fn renderSection(self: *Self, section: *const slides.Section, cursor_x: *f64, cursor_y: *f64) !void {
+        const font_data = switch (section.font_style) {
+            .serif => &self.serif_font_data,
+            .sans_serif => &self.sans_serif_font_data,
+            .monospace => &self.monospace_font_data,
+        };
+        const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent);
+        const sourced_font_size = section.text_size * font_render_size_multiplier;
+        const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / @as(f64, @floatFromInt(sourced_font_size)); // needed as we are not sourcing the font size that is displayed
+        const inverse_viewport_height = 1.0 / win.viewport_height_reference; // y-axis as scale reference
+        const font_scale = @as(f64, @floatFromInt(sourced_font_size)) / line_height;
 
-                    while (line_iterator.next()) |line| {
-                        // check line width that fits and determine cursor start for alignment
-                        var word_iterator = data.SplitIterator{ .string = line, .delimiter = ' ' };
-                        var line_to_render_start: usize = 0;
+        const yadvance_font: f64 = -(line_height + @as(f64, @floatFromInt(font_data.line_gap))) * section.line_spacing; // in font units (analogous to the xadvance in font data but generic)
+        const yadvance = yadvance_font * font_scale * font_display_scale; // this is the specific yadvance accounting for font sizes
 
-                        // we do the entire render process until there are no more auto-line-breaks to resolve
-                        // this while loop runs once for every rendered line (might be forced by auto-line-breaks)
-                        while (word_iterator.next()) |first_word| : (cursor_y += yadvance) {
-                            // there is always at least one word in a line - even if it's too long
+        switch (section.section_type) {
+            .space => |lines| {
+                cursor_y.* += yadvance * @as(f64, @floatFromInt(lines));
+            },
+            .text => |text| {
+                const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
+                const tex_id: c.GLuint = font_storage.texture;
+                const space_width = charFontWidth(' ', &font_storage, font_display_scale);
+                var line_iterator = data.SplitIterator{ .string = text.items, .delimiter = '\n' };
 
-                            var line_width: f64 = sliceFontWidth(first_word, &font_storage, font_display_scale);
-                            var line_to_render_len: usize = first_word.len;
+                while (line_iterator.next()) |line| {
+                    // check line width that fits and determine cursor start for alignment
+                    var word_iterator = data.SplitIterator{ .string = line, .delimiter = ' ' };
+                    var line_to_render_start: usize = 0;
 
-                            while (word_iterator.peek(1)) |word| {
-                                const additional_width = space_width + sliceFontWidth(word, &font_storage, font_display_scale);
+                    // we do the entire render process until there are no more auto-line-breaks to resolve
+                    // this while loop runs once for every rendered line (might be forced by auto-line-breaks)
+                    while (word_iterator.next()) |first_word| : (cursor_y.* += yadvance) {
+                        // there is always at least one word in a line - even if it's too long
 
-                                // We don't know wether or not the line fits on the whole screen.
-                                // If we encounter a word that won't fit, we render the stuff that does and go to the next line while skipping the space in between.
-                                if (line_width + additional_width > win.viewport_width_reference - 2 * min_x_start) break;
+                        var line_width: f64 = sliceFontWidth(first_word, &font_storage, font_display_scale);
+                        var line_to_render_len: usize = first_word.len;
 
-                                line_width += additional_width;
-                                line_to_render_len += 1 + word.len; // don't forget the space
-                                std.debug.assert(word_iterator.next() != null); // we peeked successfully
-                            }
+                        while (word_iterator.peek(1)) |word| {
+                            const additional_width = space_width + sliceFontWidth(word, &font_storage, font_display_scale);
 
-                            const line_to_render = line[line_to_render_start..line_to_render_start + line_to_render_len];
-                            line_to_render_start += line_to_render_len + 1; // advance the start of the rest of the line to render for the next iteration (the +1 is for the space that didn't get rendered)
+                            // We don't know wether or not the line fits on the whole screen.
+                            // If we encounter a word that won't fit, we render the stuff that does and go to the next line while skipping the space in between.
+                            if (line_width + additional_width > win.viewport_width_reference - 2 * cursor_min_x_start) break;
 
-                            cursor_x = switch (section.alignment) {
-                                .center => (win.viewport_width_reference - line_width) / 2,
-                                .right => win.viewport_width_reference - line_width - min_x_start,
-                                .left => min_x_start,
-                            };
+                            line_width += additional_width;
+                            line_to_render_len += 1 + word.len; // don't forget the space
+                            std.debug.assert(word_iterator.next() != null); // we peeked successfully
+                        }
 
-                            for (line_to_render) |char| {
-                                const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
-                                // lines don't contain the trailing new-line character
-                                switch (char) {
-                                    ' ' => {
-                                        cursor_x += baked_char.xadvance * font_display_scale;
-                                    },
-                                    else => {
-                                        const x_pos = (cursor_x + baked_char.xoff * font_display_scale) * inverse_viewport_height;
-                                        const y_pos = (cursor_y - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
-                                        // the switch of the sign of the y-offset is done to keep the way projections are done
+                        const line_to_render = line[line_to_render_start..line_to_render_start + line_to_render_len];
+                        line_to_render_start += line_to_render_len + 1; // advance the start of the rest of the line to render for the next iteration (the +1 is for the space that didn't get rendered)
 
-                                        const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+                        cursor_x.* = switch (section.alignment) {
+                            .center => (win.viewport_width_reference - line_width) / 2,
+                            .right => win.viewport_width_reference - line_width - cursor_min_x_start,
+                            .left => cursor_min_x_start,
+                        };
 
-                                        // the baked char data used does not require scaling because it would just cancel out
-                                        const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
-                                        const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_display_scale));
-                                        const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
+                        for (line_to_render) |char| {
+                            const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
+                            // lines don't contain the trailing new-line character
+                            switch (char) {
+                                ' ' => {
+                                    cursor_x.* += baked_char.xadvance * font_display_scale;
+                                },
+                                else => {
+                                    const x_pos = (cursor_x.* + baked_char.xoff * font_display_scale) * inverse_viewport_height;
+                                    const y_pos = (cursor_y.* - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
+                                    // the switch of the sign of the y-offset is done to keep the way projections are done
 
-                                        const font_texture_side_pixel_size: f32 = @floatFromInt(font_storage.texture_side_size);
-                                        const u_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
-                                        const v_0 = @as(f32, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
-                                        const u_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
-                                        const v_1 = @as(f32, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
-                                        const uvs = [data.plane_uvs.len]lina.Vec2{ lina.vec2(u_0, v_1), lina.vec2(u_1, v_0), lina.vec2(u_0, v_0), lina.vec2(u_1, v_1) };
+                                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
-                                        if (!try self.addFontQuad(trafo, tex_id, &uvs, section.text_color)) {
-                                            self.flush();
-                                            std.debug.assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
-                                        }
-                                        cursor_x += baked_char.xadvance * font_display_scale;
-                                    },
-                                }
+                                    // the baked char data used does not require scaling because it would just cancel out
+                                    const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
+                                    const pixel_scale = lina.Mat4.scaleFromFactor(@floatCast(inverse_viewport_height * @as(f64, @floatFromInt(baked_char.y1 - baked_char.y0)) * font_display_scale));
+                                    const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
+
+                                    const font_texture_side_pixel_size: f32 = @floatFromInt(font_storage.texture_side_size);
+                                    const u_0 = @as(f32, @floatFromInt(baked_char.x0)) / font_texture_side_pixel_size;
+                                    const v_0 = @as(f32, @floatFromInt(baked_char.y0)) / font_texture_side_pixel_size;
+                                    const u_1 = @as(f32, @floatFromInt(baked_char.x1)) / font_texture_side_pixel_size;
+                                    const v_1 = @as(f32, @floatFromInt(baked_char.y1)) / font_texture_side_pixel_size;
+                                    const uvs = [data.plane_uvs.len]lina.Vec2{ lina.vec2(u_0, v_1), lina.vec2(u_1, v_0), lina.vec2(u_0, v_0), lina.vec2(u_1, v_1) };
+
+                                    if (!try self.addFontQuad(trafo, tex_id, &uvs, section.text_color)) {
+                                        self.flush();
+                                        std.debug.assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
+                                    }
+                                    cursor_x.* += baked_char.xadvance * font_display_scale;
+                                },
                             }
                         }
                     }
-                },
-                .image => |image_source| {
-                    const image_data = switch (image_source) {
-                        .path => |*path| self.images.get(path.items).?,
-                        .file_drop_image => self.file_drop_image.?,
-                    };
-                    cursor_x = switch (section.alignment) {
-                        .center => (win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale) / 2,
-                        .right => win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale - min_x_start,
-                        .left => min_x_start,
-                    };
+                }
+            },
+            .image => |image_source| {
+                const image_data = switch (image_source) {
+                    .path => |*path| self.images.get(path.items).?,
+                    .file_drop_image => self.file_drop_image.?,
+                };
+                cursor_x.* = switch (section.alignment) {
+                    .center => (win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale) / 2,
+                    .right => win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale - cursor_min_x_start,
+                    .left => cursor_min_x_start,
+                };
 
-                    const x_pos = cursor_x * inverse_viewport_height;
-                    const y_pos = cursor_y * inverse_viewport_height;
-                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+                const x_pos = cursor_x.* * inverse_viewport_height;
+                const y_pos = cursor_y.* * inverse_viewport_height;
+                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
-                    const image_scale = lina.Mat4.scaleFromFactor(section.image_scale);
-                    const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(image_data.width)) / @as(f32, @floatFromInt(image_data.height)), .y = 1.0, .z = 1.0, });
-                    const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * @as(f32, @floatFromInt(image_data.height)));
-                    const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale).mul(image_scale);
+                const image_scale = lina.Mat4.scaleFromFactor(section.image_scale);
+                const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(image_data.width)) / @as(f32, @floatFromInt(image_data.height)), .y = 1.0, .z = 1.0, });
+                const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * @as(f32, @floatFromInt(image_data.height)));
+                const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale).mul(image_scale);
 
-                    if (!try self.addImageQuad(trafo, image_data.texture)) {
-                        self.flush();
-                        std.debug.assert(try self.addImageQuad(trafo, image_data.texture));
-                    }
-                    cursor_y -= @as(f64, @floatFromInt(image_data.height));
-                    cursor_y += yadvance;
-                },
-            }
+                if (!try self.addImageQuad(trafo, image_data.texture)) {
+                    self.flush();
+                    std.debug.assert(try self.addImageQuad(trafo, image_data.texture));
+                }
+                cursor_y.* -= @as(f64, @floatFromInt(image_data.height)) * section.image_scale;
+            },
         }
-        self.flush();
     }
 
     /// computes the width of a slice of characters for some font
@@ -685,3 +716,4 @@ pub const Renderer = struct {
 };
 
 const max_texture_count: usize = 32;
+const cursor_min_x_start: f64 = 10; // in pixels

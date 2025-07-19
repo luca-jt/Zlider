@@ -7,6 +7,7 @@
 // default font is serif
 // default slide aspect ratio is 16/9
 // by default black bars are shown at the edges of slides if the aspect ratios don't match
+// by default there are no headers and footers
 
 // The text size is always relative to a 1080p screen (height is referenced even when the aspect ratio is different). This is done to retain spacing and scaling when displaying on larger (or smaller) screens. When dumping slides to file this reference size is always used for the output.
 
@@ -28,6 +29,10 @@ space 1
 image test.png
 
 // Inserting images, spacings, and text creates a new context section. You can define formatting etc. for them before inserting the content. Inserted content always uses the last value defined for a formatting option.
+
+// If you dont want the footer or header to be used on a slide, you can use these keywords to exclude them. This might be useful for cover sheets.
+no_footer
+no_header
 
 
 
@@ -62,8 +67,6 @@ text
 
 center // set the content alignment
 image_scale 0.5 // scales images by a certain factor
-
-space 2
 
 image ./../example/test.png // more complicated paths are resolved
 
@@ -114,4 +117,22 @@ const std = @import("std");
 pub fn main() !void {
     std.debug.print("Hamburger\n");
 }
+text
+
+
+// You can define an optional unique header or footer just like a slide at the end of the file. It will be displayed on every slide it's not excluded from. Each definition ends on a new slide/header/footer declaration. They can't contain format specifiers that influence entire slides. Header definitions must precede footer definitions.
+header
+font sans_serif
+text_color 0x00FF00FF
+text_size 30
+text
+This is a header.
+text
+space 1
+
+footer
+right
+space 1
+text
+This is a footer.
 text

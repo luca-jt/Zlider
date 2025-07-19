@@ -25,7 +25,6 @@ pub fn main() !void {
     } else {
         slides.loadHomeScreenSlide();
     }
-    state.renderer.loadSlideData();
 
     while (!state.window.shouldClose()) {
         try win.handleInput();

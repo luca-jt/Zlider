@@ -36,6 +36,10 @@ Here is a complete list:
 | space | Inserts a given amount of empty lines. |
 | image | Inserts an image given by the path relative to the slide show file. |
 | image_scale | Defines the image scaling factor to be used. |
+| header | Defines a header for all slides at the end of the file. |
+| footer | Defines a footer for all slides at the end of the file. |
+| no_header | Excludes the header from the current slide. |
+| no_footer | Excludes the footer from the current slide. |
 
 ## Hot reloading
 Once there is an attempt to load a slide show file, it will be tracked and hot reloaded when the contents of the file change. This always happens, regardless of wether or not the slide show is parsed without errors. This way the editing process of the slide show files is easier - you can just keep the file loaded and immediately see the results. If you unload the slide show, the file will no longer be tracked.
