@@ -2,4 +2,4 @@ slide templates
 layers
 colored areas on slides
 footer alignment
-line numbers are messed up in lexer + crash on reload
+line numbers are messed up in lexer

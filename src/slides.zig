@@ -1,5 +1,5 @@
 const std = @import("std");
-const print = std.debug.print;
+const assert = std.debug.assert;
 pub const ArrayList = std.ArrayList;
 const String = std.ArrayList(u8);
 const data = @import("data.zig");
@@ -155,7 +155,7 @@ const Lexer = struct {
                         if (parsed_color) |color| {
                             break :blk .{ .text_color = color };
                         } else {
-                            print("Line {}: '{s}' | ", .{ self.line, color_string });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
                             return error.LexerInvalidToken;
                         }
                     },
@@ -165,7 +165,7 @@ const Lexer = struct {
                         if (parsed_color) |color| {
                             break :blk .{ .bg = color };
                         } else {
-                            print("Line {}: '{s}' | ", .{ self.line, color_string });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
                             return error.LexerInvalidToken;
                         }
                     },
@@ -193,7 +193,7 @@ const Lexer = struct {
                             try text.append('\n');
                             line = self.readUntilNewLine();
                         } else {
-                            print("Line {}: 'text' | ", .{self.line});
+                            std.log.err("Line {}: 'text' | Lexer interupt", .{self.line});
                             return error.LexerNoClosingKeyword;
                         }
                         _ = text.pop(); // remove the trailing line break if present
@@ -202,7 +202,7 @@ const Lexer = struct {
                     .space => blk: {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            print("Line {}: '{s}' | ", .{ self.line, int_string });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, int_string });
                             return error.LexerInvalidToken;
                         };
                         break :blk .{ .space = parsed_int };
@@ -210,14 +210,14 @@ const Lexer = struct {
                     .text_size => blk: {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            print("Line {}: '{s}' | ", .{ self.line, int_string });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, int_string });
                             return error.LexerInvalidToken;
                         };
                         break :blk .{ .text_size = parsed_int };
                     },
                     .image => blk: {
                         if (self.file_dir == null) {
-                            print("Line {}: | ", .{ self.line });
+                            std.log.err("Line {} | Lexer interupt", .{ self.line });
                             return error.ImageInInternalSource;
                         }
 
@@ -231,7 +231,7 @@ const Lexer = struct {
                         const resolved_path_owned = String.fromOwnedSlice(state.allocator, resolved_path);
                         errdefer resolved_path_owned.deinit();
                         std.fs.accessAbsolute(resolved_path_owned.items, .{}) catch |err| {
-                            print("Line {}: '{s}' | ", .{ self.line, resolved_path_owned.items });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, resolved_path_owned.items });
                             return err;
                         };
                         break :blk .{ .image = resolved_path_owned };
@@ -239,7 +239,7 @@ const Lexer = struct {
                     .image_scale => blk: {
                         const scale_slice = self.readNextWord();
                         const parsed_scale = std.fmt.parseFloat(f32, scale_slice) catch {
-                            print("Line {}: '{s}' | ", .{ self.line, scale_slice });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, scale_slice });
                             return error.LexerInvalidToken;
                         };
                         break :blk .{ .image_scale = parsed_scale };
@@ -247,7 +247,7 @@ const Lexer = struct {
                     .line_spacing => blk: {
                         const spacing_slice = self.readNextWord();
                         const parsed_spacing = std.fmt.parseFloat(f64, spacing_slice) catch {
-                            print("Line {}: '{s}' | ", .{ self.line, spacing_slice });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, spacing_slice });
                             return error.LexerInvalidToken;
                         };
                         break :blk .{ .line_spacing = parsed_spacing };
@@ -273,26 +273,26 @@ const Lexer = struct {
 
                         const width = if (number_it.next()) |num_slice|
                             std.fmt.parseInt(u8, num_slice, 10) catch {
-                                print("Line {}: '{s}' | ", .{ self.line, num_slice });
+                                std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, num_slice });
                                 return error.LexerInvalidToken;
                             }
                         else {
-                            print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
                             return error.LexerInvalidToken;
                         };
 
                         const height = if (number_it.next()) |num_slice|
                             std.fmt.parseInt(u8, num_slice, 10) catch {
-                                print("Line {}: '{s}' | ", .{ self.line, num_slice });
+                                std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, num_slice });
                                 return error.LexerInvalidToken;
                             }
                         else {
-                            print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
                             return error.LexerInvalidToken;
                         };
 
                         if (number_it.next() != null) {
-                            print("Line {}: '{s}' | ", .{ self.line, ratio_slice });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
                             return error.LexerInvalidToken;
                         }
 
@@ -306,7 +306,7 @@ const Lexer = struct {
                         else if (std.mem.eql(u8, flag_slice, "false"))
                             false
                         else {
-                            print("Line {}: '{s}' | ", .{ self.line, flag_slice });
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, flag_slice });
                             return error.LexerInvalidToken;
                         };
                         break :blk .{ .black_bars = flag_value };
@@ -320,7 +320,7 @@ const Lexer = struct {
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
                 _ = self.readUntilNewLine();
             } else {
-                print("Line {}: '{s}' | ", .{ self.line, next_word });
+                std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, next_word });
                 return error.LexerUnknownKeyword;
             }
         }
@@ -429,12 +429,21 @@ fn watchCallback(watch_id: c.dmon_watch_id, action: c.dmon_action, root_dir: [*c
     _ = old_file_path;
     _ = user;
 
-    std.debug.assert(state.slide_show.fileIsTracked());
+    //
+    // This function is called in a seperate thread. All the actions below are read-only or atomic.
+    // There should not be a concurrent state mutating operation that messes with this.
+    // I might be wrong though and we might have to come back to this.
+    //
+
+    assert(state.slide_show.fileIsTracked());
 
     const is_slide_show_file = std.mem.eql(u8, state.slide_show.loadedFileName(), std.mem.span(file_path));
     const should_reload = (action == c.DMON_ACTION_MODIFY and is_slide_show_file);
 
-    if (should_reload) reloadSlideShow() catch @panic("unexpected render error");
+    if (should_reload) {
+        @atomicStore(bool, &state.file_watcher_modify_message, true, std.builtin.AtomicOrder.release);
+        c.glfwPostEmptyEvent();
+    }
 }
 
 pub const SlideShow = struct {
@@ -444,7 +453,6 @@ pub const SlideShow = struct {
     slide_index: usize = 0,
     tracked_file: String,
     watched_dir_id: ?c.dmon_watch_id = null,
-    home_screen_loaded: bool = false,
 
     const Self = @This();
 
@@ -502,7 +510,7 @@ pub const SlideShow = struct {
         return self.tracked_file.items.len > 0; // when tracking stops, the buffer is cleared
     }
 
-    pub fn unloadSlides(self: *Self) void {
+    fn unloadSlides(self: *Self) void {
         for (self.header.items) |*section| {
             section.deinit();
         }
@@ -576,14 +584,14 @@ fn parseSlideShow(file_contents: []const u8) !void {
             },
             .bg => |color| {
                 if (header_defined or footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.BackgroundColorInMarginal;
                 }
                 slide.background_color = color;
             },
             .slide => |is_fallthrough| {
                 if (header_defined or footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.SlideAfterMarginalDefinition;
                 }
                 try state.slide_show.newSlide(&slide, is_fallthrough);
@@ -656,51 +664,49 @@ fn parseSlideShow(file_contents: []const u8) !void {
             },
             .aspect_ratio => |ratio| {
                 if (header_defined or footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.AspectRatioInMarginal;
                 }
                 state.window.forceViewportAspectRatio(ratio);
                 state.window.updateViewport(state.window.size_x, state.window.size_y);
                 state.renderer.updateMatrices();
-                c.glfwPostEmptyEvent();
             },
             .black_bars => |flag| {
                 if (header_defined or footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.BlackBarsInMarginal;
                 }
                 state.window.display_black_bars = flag;
                 state.window.updateViewport(state.window.size_x, state.window.size_y);
-                c.glfwPostEmptyEvent();
             },
             .header => {
                 if (header_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.MultipleHeaders;
                 }
                 if (footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.HeaderDefinitionAfterFooter;
                 }
                 header_defined = true;
             },
             .footer => {
                 if (footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.MultipleFooters;
                 }
                 footer_defined = true;
             },
             .no_header => {
                 if (header_defined or footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.NoHeaderInMarginal;
                 }
                 slide.exclude_header = true;
             },
             .no_footer => {
                 if (header_defined or footer_defined) {
-                    print("Line {}: ", .{ lexer.line });
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.NoFooterInMarginal;
                 }
                 slide.exclude_footer = true;
@@ -712,11 +718,12 @@ fn parseSlideShow(file_contents: []const u8) !void {
     try state.slide_show.slides.append(slide);
 
     if (state.slide_show.slides.items.len > 999) return error.TooManySlides;
+    std.log.debug("Parsed slide show.", .{});
 }
 
 fn loadSlidesFromFile(file_path: []const u8) void {
     const file_contents = data.readEntireFile(file_path, state.allocator) catch |err| {
-        print("{s} | Unable to read file: {s}\n", .{ @errorName(err), file_path });
+        std.log.err("{s} | Unable to read file '{s}'.", .{ @errorName(err), file_path });
         return;
     };
     defer file_contents.deinit();
@@ -724,13 +731,12 @@ fn loadSlidesFromFile(file_path: []const u8) void {
     state.window.display_black_bars = true;
 
     parseSlideShow(file_contents.items) catch |e| {
-        print("Error: {s}", .{@errorName(e)});
-        print("\nUnable to parse slide show file: {s}\n", .{file_path});
+        std.log.err("{s} | Unable to parse slide show file '{s}'.", .{ @errorName(e), file_path });
         return;
     };
     state.renderer.loadSlideData();
 
-    print("Successfully loaded slide show file: '{s}'.\n", .{file_path});
+    std.log.info("Successfully loaded slide show file: '{s}'.", .{ file_path });
 }
 
 fn unloadSlideShow() void {
@@ -741,10 +747,11 @@ fn unloadSlideShow() void {
     state.renderer.updateMatrices();
     state.renderer.clear();
     c.glfwPostEmptyEvent(); // for render refresh
+    std.log.debug("Unloaded slide show.", .{});
 }
 
-fn reloadSlideShow() !void {
-    std.debug.assert(state.slide_show.fileIsTracked());
+pub fn reloadSlideShow() !void {
+    assert(state.slide_show.fileIsTracked());
     const slide_index = state.slide_show.slide_index;
 
     unloadSlideShow();
@@ -775,7 +782,7 @@ pub fn loadSlideShow(file_path: [:0]const u8) !void {
     var new_title = String.init(state.allocator);
     defer new_title.deinit();
     try new_title.appendSlice(win.default_title);
-    std.debug.assert(state.slide_show.fileIsTracked());
+    assert(state.slide_show.fileIsTracked());
     try new_title.appendSlice(" | ");
     try new_title.appendSlice(state.slide_show.loadedFileName());
     try new_title.append(0); // null-termination needed
@@ -789,12 +796,14 @@ pub fn loadHomeScreenSlide() void {
         state.window.updateTitle(null);
         c.dmon_unwatch(state.slide_show.watched_dir_id.?);
         state.slide_show.watched_dir_id = null;
-        print("Unloaded slide show file.\n", .{});
+        std.log.info("Unloaded slide show file.", .{});
     }
     unloadSlideShow();
 
     parseSlideShow(data.home_screen_slide) catch |e| {
-        print("Error: {s}\n", .{@errorName(e)});
+        std.log.err("{s}", .{ @errorName(e) });
+        return;
     };
     state.renderer.loadSlideData();
+    std.log.debug("Loaded home screen slide.", .{});
 }

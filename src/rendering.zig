@@ -5,6 +5,7 @@ const state = @import("state.zig");
 const lina = @import("linalg.zig");
 const slides = @import("slides.zig");
 const std = @import("std");
+const assert = std.debug.assert;
 const StringHashMap = std.StringHashMap;
 const HashMap = std.AutoHashMap;
 const ArrayList = std.ArrayList;
@@ -157,17 +158,18 @@ const FontData = struct {
             .font = font,
         };
 
-        std.debug.assert(c.stbtt_InitFont(&self.font_info, font, 0) != 0);
+        assert(c.stbtt_InitFont(&self.font_info, font, 0) != 0);
         c.stbtt_GetFontVMetrics(&self.font_info, &self.ascent, &self.descent, &self.line_gap);
 
         return self;
     }
 
-    fn loadFont(self: *Self, font_size: usize) void {
+    fn loadFont(self: *Self, font_size: usize) bool {
         const sourced_font_size = font_size * font_render_size_multiplier;
-        if (self.loaded_fonts.contains(sourced_font_size)) return;
+        if (self.loaded_fonts.contains(sourced_font_size)) return false;
         const font_storage = FontStorage.initWithFontData(self.font, sourced_font_size) catch @panic("allocation error");
         self.loaded_fonts.put(sourced_font_size, font_storage) catch @panic("allocation error");
+        return true;
     }
 
     fn clear(self: *Self) void {
@@ -315,6 +317,8 @@ pub const Renderer = struct {
         self.serif_font_data.clear();
         self.sans_serif_font_data.clear();
         self.monospace_font_data.clear();
+
+        std.log.debug("Cleared renderer.", .{});
     }
 
     pub fn updateMatrices(self: *Self) void {
@@ -335,12 +339,14 @@ pub const Renderer = struct {
                         var num_channels: c_int = undefined;
                         const desired_channels: c_int = 4;
                         const image = c.stbi_load(@ptrCast(path.items), &width, &height, &num_channels, desired_channels);
-                        std.debug.assert(num_channels == desired_channels);
+                        assert(num_channels == desired_channels);
 
                         const tex_id = generateTexture(image, width, height);
                         c.stbi_image_free(image);
                         const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
                         self.images.put(path.items, image_data) catch @panic("allocation error");
+
+                        std.log.debug("Loaded image: '{s}'.", .{ path.items });
                     },
                     .file_drop_image => {
                         if (self.file_drop_image != null) return;
@@ -350,7 +356,7 @@ pub const Renderer = struct {
                         var num_channels: c_int = undefined;
                         const desired_channels: c_int = 4;
                         const image = c.stbi_load_from_memory(@ptrCast(data.file_drop_image), data.file_drop_image.len, &width, &height, &num_channels, desired_channels);
-                        std.debug.assert(num_channels == desired_channels);
+                        assert(num_channels == desired_channels);
 
                         const tex_id = generateTexture(image, width, height);
                         c.stbi_image_free(image);
@@ -364,7 +370,8 @@ pub const Renderer = struct {
                     .sans_serif => &self.sans_serif_font_data,
                     .monospace => &self.monospace_font_data,
                 };
-                font_data.loadFont(section.text_size);
+                const added = font_data.loadFont(section.text_size);
+                if (added) std.log.debug("Loaded font {s} with size {}.", .{ @tagName(section.font_style), section.text_size });
             },
             .space => {},
         }
@@ -462,7 +469,7 @@ pub const Renderer = struct {
 
                             line_width += additional_width;
                             line_to_render_len += 1 + word.len; // don't forget the space
-                            std.debug.assert(word_iterator.next() != null); // we peeked successfully
+                            assert(word_iterator.next() != null); // we peeked successfully
                         }
 
                         const line_to_render = line[line_to_render_start..line_to_render_start + line_to_render_len];
@@ -502,7 +509,7 @@ pub const Renderer = struct {
 
                                     if (!try self.addFontQuad(trafo, tex_id, &uvs, section.text_color)) {
                                         self.flush();
-                                        std.debug.assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
+                                        assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
                                     }
                                     cursor_x.* += baked_char.xadvance * font_display_scale;
                                 },
@@ -533,7 +540,7 @@ pub const Renderer = struct {
 
                 if (!try self.addImageQuad(trafo, image_data.texture)) {
                     self.flush();
-                    std.debug.assert(try self.addImageQuad(trafo, image_data.texture));
+                    assert(try self.addImageQuad(trafo, image_data.texture));
                 }
                 cursor_y.* -= @as(f64, @floatFromInt(image_data.height)) * section.image_scale;
             },

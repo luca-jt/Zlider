@@ -4,6 +4,9 @@ const SlideShow = @import("slides.zig").SlideShow;
 const Renderer = @import("rendering.zig").Renderer;
 
 pub const allocator = std.heap.c_allocator; // one global allocator is sufficient
+
 pub var window: Window = .{};
 pub var slide_show: SlideShow = undefined;
 pub var renderer: Renderer = undefined;
+
+pub var file_watcher_modify_message: bool = false;

@@ -4,7 +4,6 @@ const slides = @import("slides.zig");
 const state = @import("state.zig");
 const data = @import("data.zig");
 const std = @import("std");
-const print = std.debug.print;
 const assert = std.debug.assert;
 const String = std.ArrayList(u8);
 
@@ -150,6 +149,7 @@ pub const Window = extern struct {
             self.forced_viewport_aspect_ratio = default_viewport_aspect_ratio;
             viewport_width_reference = default_viewport_width_reference;
         }
+        std.log.debug("Forced viewport aspect ratio: {?}", .{ aspect });
     }
 
     /// width / height
@@ -192,6 +192,8 @@ pub const Window = extern struct {
             c.glfwSetWindowMonitor(self.glfw_window, null, self.pos_x, self.pos_y, self.size_x, self.size_y, c.GLFW_DONT_CARE);
         }
         self.fullscreen = !self.fullscreen;
+
+        std.log.debug("Set fullscreen: {}", .{ self.fullscreen });
     }
 
     /// get the monitor the window is currently on
@@ -306,7 +308,10 @@ const KeyState = struct {
     }
 };
 
-pub fn handleInput() !void {
+pub fn handleEvents() !void {
+    const slide_show_file_modified = @atomicRmw(bool, &state.file_watcher_modify_message, std.builtin.AtomicRmwOp.Xchg, false, std.builtin.AtomicOrder.acq_rel);
+    if (slide_show_file_modified) try slides.reloadSlideShow();
+
     KeyState.update();
 
     if (KeyState.isPressed(c.GLFW_KEY_F11)) {
@@ -381,7 +386,7 @@ fn dumpSlidesPNG(compress_slides: bool) !void {
         state.window.swapBuffers(); // for animation
 
         _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, channels, @ptrCast(slide_mem), state.window.viewport_size_x * @as(c_int, channels));
-        print("Dumped slide {} to image file '{s}'.\n", .{slide_number, slide_file_name.items});
+        std.log.info("Dumped slide {} to image file '{s}'.", .{slide_number, slide_file_name.items});
 
         slide_number += 1;
     }
@@ -450,7 +455,7 @@ fn dumpSlidesPDF(compress_slides: bool) !void {
     }
 
     assert(c.pdf_save(pdf, @ptrCast(pdf_file_name.items)) >= 0);
-    print("Dumped slide show to PDF file: '{s}'.\n", .{ pdf_file_name.items });
+    std.log.info("Dumped slide show to PDF file: '{s}'.", .{ pdf_file_name.items });
     c.pdf_destroy(pdf);
 
     // load the original state
