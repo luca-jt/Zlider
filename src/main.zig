@@ -6,7 +6,7 @@ const render = @import("rendering.zig");
 const state = @import("state.zig");
 
 pub const std_options: std.Options = .{
-    .log_level = .debug,
+    .log_level = .info,
     .logFn = colorLogFn,
 };
 

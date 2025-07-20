@@ -191,8 +191,8 @@ const FontData = struct {
 
 const ImageData = struct {
     texture: c.GLuint,
-    width: usize,
-    height: usize,
+    width: f32, // floats used to avoid many conversions
+    height: f32,
 };
 
 pub const Renderer = struct {
@@ -329,24 +329,24 @@ pub const Renderer = struct {
 
     fn loadSectionData(self: *Self, section: *const slides.Section) void {
         switch (section.section_type) {
-            .image => |image_source| {
+            .image_source => |image_source| {
                 switch (image_source) {
-                    .path => |*path| {
-                        if (self.images.contains(path.items)) return;
+                    .image => |*image| {
+                        if (self.images.contains(image.path.items)) return;
 
                         var width: c_int = undefined;
                         var height: c_int = undefined;
                         var num_channels: c_int = undefined;
                         const desired_channels: c_int = 4;
-                        const image = c.stbi_load(@ptrCast(path.items), &width, &height, &num_channels, desired_channels);
+                        const loaded_image = c.stbi_load(@ptrCast(image.path.items), &width, &height, &num_channels, desired_channels);
                         assert(num_channels == desired_channels);
 
-                        const tex_id = generateTexture(image, width, height);
-                        c.stbi_image_free(image);
-                        const image_data: ImageData = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
-                        self.images.put(path.items, image_data) catch @panic("allocation error");
+                        const tex_id = generateTexture(loaded_image, width, height);
+                        c.stbi_image_free(loaded_image);
+                        const image_data: ImageData = .{ .texture = tex_id, .width = @floatFromInt(width), .height = @floatFromInt(height) };
+                        self.images.put(image.path.items, image_data) catch @panic("allocation error");
 
-                        std.log.debug("Loaded image: '{s}'.", .{ path.items });
+                        std.log.debug("Loaded image: '{s}'.", .{ image.path.items });
                     },
                     .file_drop_image => {
                         if (self.file_drop_image != null) return;
@@ -355,12 +355,12 @@ pub const Renderer = struct {
                         var height: c_int = undefined;
                         var num_channels: c_int = undefined;
                         const desired_channels: c_int = 4;
-                        const image = c.stbi_load_from_memory(@ptrCast(data.file_drop_image), data.file_drop_image.len, &width, &height, &num_channels, desired_channels);
+                        const loaded_image = c.stbi_load_from_memory(@ptrCast(data.file_drop_image), data.file_drop_image.len, &width, &height, &num_channels, desired_channels);
                         assert(num_channels == desired_channels);
 
-                        const tex_id = generateTexture(image, width, height);
-                        c.stbi_image_free(image);
-                        self.file_drop_image = .{ .texture = tex_id, .width = @intCast(width), .height = @intCast(height) };
+                        const tex_id = generateTexture(loaded_image, width, height);
+                        c.stbi_image_free(loaded_image);
+                        self.file_drop_image = .{ .texture = tex_id, .width = @floatFromInt(width), .height = @floatFromInt(height) };
                     },
                 }
             },
@@ -373,7 +373,7 @@ pub const Renderer = struct {
                 const added = font_data.loadFont(section.text_size);
                 if (added) std.log.debug("Loaded font {s} with size {}.", .{ @tagName(section.font_style), section.text_size });
             },
-            .space => {},
+            .space, .quad => {},
         }
     }
 
@@ -399,7 +399,7 @@ pub const Renderer = struct {
         if (slide_opt == null) return;
         const slide = slide_opt.?;
 
-        var cursor_x: f64 = cursor_min_x_start; // x position in pixel units
+        var cursor_x: f64 = 0; // x position in pixel units
         var cursor_y: f64 = 0; // y baseline position in pixel units
 
         // render the header
@@ -465,7 +465,7 @@ pub const Renderer = struct {
 
                             // We don't know wether or not the line fits on the whole screen.
                             // If we encounter a word that won't fit, we render the stuff that does and go to the next line while skipping the space in between.
-                            if (line_width + additional_width > win.viewport_width_reference - 2 * cursor_min_x_start) break;
+                            if (line_width + additional_width > win.viewport_width_reference - section.left_space - section.right_space) break;
 
                             line_width += additional_width;
                             line_to_render_len += 1 + word.len; // don't forget the space
@@ -477,8 +477,8 @@ pub const Renderer = struct {
 
                         cursor_x.* = switch (section.alignment) {
                             .center => (win.viewport_width_reference - line_width) / 2,
-                            .right => win.viewport_width_reference - line_width - cursor_min_x_start,
-                            .left => cursor_min_x_start,
+                            .right => win.viewport_width_reference - line_width - section.right_space,
+                            .left => section.left_space,
                         };
 
                         for (line_to_render) |char| {
@@ -518,31 +518,49 @@ pub const Renderer = struct {
                     }
                 }
             },
-            .image => |image_source| {
+            .image_source => |image_source| {
                 const image_data = switch (image_source) {
-                    .path => |*path| self.images.get(path.items).?,
+                    .image => |*image| self.images.get(image.path.items).?,
                     .file_drop_image => self.file_drop_image.?,
                 };
                 cursor_x.* = switch (section.alignment) {
-                    .center => (win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale) / 2,
-                    .right => win.viewport_width_reference - @as(f64, @floatFromInt(image_data.width)) * section.image_scale - cursor_min_x_start,
-                    .left => cursor_min_x_start,
+                    .center => (win.viewport_width_reference - image_data.width * image_source.scale()) / 2,
+                    .right => win.viewport_width_reference - image_data.width * image_source.scale() - section.right_space,
+                    .left => section.left_space,
                 };
 
                 const x_pos = cursor_x.* * inverse_viewport_height;
                 const y_pos = cursor_y.* * inverse_viewport_height;
                 const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
 
-                const image_scale = lina.Mat4.scaleFromFactor(section.image_scale);
-                const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(image_data.width)) / @as(f32, @floatFromInt(image_data.height)), .y = 1.0, .z = 1.0, });
-                const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * @as(f32, @floatFromInt(image_data.height)));
+                const image_scale = lina.Mat4.scaleFromFactor(image_source.scale());
+                const scale = lina.Mat4.scale(.{ .x = image_data.width / image_data.height, .y = 1.0, .z = 1.0, });
+                const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * image_data.height);
                 const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale).mul(image_scale);
 
                 if (!try self.addImageQuad(trafo, image_data.texture)) {
                     self.flush();
                     assert(try self.addImageQuad(trafo, image_data.texture));
                 }
-                cursor_y.* -= @as(f64, @floatFromInt(image_data.height)) * section.image_scale;
+                cursor_y.* -= image_data.height * image_source.scale();
+            },
+            .quad => |color_quad| {
+                cursor_x.* = switch (section.alignment) {
+                    .center => (win.viewport_width_reference - color_quad.width) / 2,
+                    .right => win.viewport_width_reference - color_quad.width - section.right_space,
+                    .left => section.left_space,
+                };
+
+                const x_pos = cursor_x.* * inverse_viewport_height;
+                const y_pos = cursor_y.* * inverse_viewport_height;
+                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+
+                const scale = lina.Mat4.scale(.{ .x = color_quad.width / color_quad.height, .y = 1.0, .z = 1.0, });
+                const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * color_quad.height);
+                const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale);
+
+                try self.addColorQuad(trafo, color_quad.color);
+                cursor_y.* -= color_quad.height;
             },
         }
     }
@@ -675,7 +693,7 @@ pub const Renderer = struct {
         return true;
     }
 
-    fn addColorQuad(self: Self, trafo: lina.Mat4, color: data.Color32) !void {
+    fn addColorQuad(self: *Self, trafo: lina.Mat4, color: data.Color32) !void {
         if (self.index_count >= data.plane_indices.len * self.max_num_meshes) {
             // resize batch if size is exceeded
             try self.resizeBuffer();
@@ -723,4 +741,3 @@ pub const Renderer = struct {
 };
 
 const max_texture_count: usize = 32;
-const cursor_min_x_start: f64 = 10; // in pixels

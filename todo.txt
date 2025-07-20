@@ -1,5 +1,3 @@
 slide templates
-layers
-colored areas on slides
-footer alignment
-line numbers are messed up in lexer
+layers + some settings are layer-specific
+footer placement for height

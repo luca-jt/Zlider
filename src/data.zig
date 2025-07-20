@@ -7,7 +7,7 @@ const lina = @import("linalg.zig");
 /// Allocates memory, reads the contents of an entire file into a dynamic string and adds null-termination.
 pub fn readEntireFile(file_name: []const u8, allocator: Allocator) !String {
     const dir = std.fs.cwd();
-    const buffer = try dir.readFileAlloc(allocator, file_name, 4096);
+    const buffer = try dir.readFileAlloc(allocator, file_name, (2 << 20) * 50); // 50 MiB should be enough
     var string = String.fromOwnedSlice(allocator, buffer);
     try string.append(0); // do this for lexing pointer stuff
     errdefer string.deinit();
@@ -177,7 +177,6 @@ pub const home_screen_slide: [:0]const u8 =
     \\text_color 0xF6A319FF
     \\bg 0x2C2E34FF
     \\text_size 10
-    \\image_scale 0.2
     \\
     \\space 6
     \\
@@ -199,5 +198,5 @@ pub const home_screen_slide: [:0]const u8 =
     \\
     \\space 2
     \\
-    \\file_drop_image
+    \\file_drop_image 0.2
 ;

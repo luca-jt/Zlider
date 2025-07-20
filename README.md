@@ -19,37 +19,42 @@ A simple slide show program in Zig.
 There is an example slide show file ``example/example.slides`` that explains the syntax that is used to create slide shows. Not all keywords of this "markup language" for the slide show files may occur in the example.\
 Here is a complete list:
 
-| Keyword | Semantics |
-| :------ | :-------- |
-| aspect_ratio | Defines the aspect ratio of all the slides in a slide show. |
-| black_bars | Flag to enable or disable black bars on the edges of the slides if aspect ratios don't match. |
-| bg | Defines the background color of the slides with a hex value. |
-| text_color | Defines the text color to be used with a hex value. |
-| text_size | Defines the text size to be used. |
-| line_spacing | Defines the line spacing factor to be used. |
-| font | Changes the used font. Choices are: "serif", "sans_serif", "monospace". |
-| center | Alignment specifier that centers all contents. |
-| left | Alignment specifier that left-aligns all contents. |
-| right | Alignment specifier that right-aligns all contents. |
-| slide | Seperator between slides. |
-| text | Marks the beginning and end of a text block. |
-| space | Inserts a given amount of empty lines. |
-| image | Inserts an image given by the path relative to the slide show file. |
-| image_scale | Defines the image scaling factor to be used. |
-| header | Defines a header for all slides at the end of the file. |
-| footer | Defines a footer for all slides at the end of the file. |
-| no_header | Excludes the header from the current slide. |
-| no_footer | Excludes the footer from the current slide. |
+| Keyword | Inputs | Semantics |
+| :------ | :---- | :-------- |
+| aspect_ratio | Integer_Integer | Defines the aspect ratio of all the slides in a slide show by a <width>_<height> fraction. |
+| black_bars | Boolean | Flag to enable or disable black bars on the edges of the slides if aspect ratios don't match. |
+| bg | 32bit Hex | Defines the background color of the slides with a hex value. |
+| text_color | 32bit Hex | Defines the text color to be used with a hex value. |
+| text_size | Integer | Defines the text size to be used. |
+| line_spacing | Float | Defines the line spacing factor to be used. |
+| font | serif, sans_serif, monospace | Changes the used font. |
+| center | - | Alignment specifier that centers all contents. |
+| left | - | Alignment specifier that left-aligns all contents. |
+| right | - | Alignment specifier that right-aligns all contents. |
+| slide | (fallthrough) | Seperator between slides. |
+| text | ... | Marks the beginning and end of a text block. |
+| space | Integer | Inserts a given amount of empty lines. |
+| image | <path> (scale) | Inserts an image given by the path relative to the slide show file with an optional scale. |
+| header | ... | Defines a header for all slides at the end of the file. |
+| footer | ... | Defines a footer for all slides at the end of the file. |
+| no_header | - | Excludes the header from the current slide. |
+| no_footer | - | Excludes the footer from the current slide. |
+| quad | 32bit Hex Float Float | Defines a quad with a color, width and height. |
+| left_space | Integer | Defines the space left on the left side of the slide. |
+| right_space | Integer | Defines the space left on the right side of the slide. |
 
 ## Hot reloading
 Once there is an attempt to load a slide show file, it will be tracked and hot reloaded when the contents of the file change. This always happens, regardless of wether or not the slide show is parsed without errors. This way the editing process of the slide show files is easier - you can just keep the file loaded and immediately see the results. If you unload the slide show, the file will no longer be tracked.
 
 ## Targets
 - Linux
-- Windows 64
-- MacOS
+- Windows
+- MacOS (untested)
 
 This is made possible because the project already ships most external dependency files such that you don't have to get them yourself. There are also some custom modifications that are possible because of that.
 
 > [!Warning]
-> The build works for both Linux and Windows, but the actual program is only tested on Linux for now. The build on MacOS is not tested. Other targets might require some work. PRs are welcome.
+> Support for MacOS in theory is there, but it's not tested at all. Other targets might require some work, too. PR's are welcome.
+
+## Planned Features
+- Conversion to PDF files bakes actual text data and not just rendered images.

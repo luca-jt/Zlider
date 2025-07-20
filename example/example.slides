@@ -6,6 +6,7 @@
 // default text size is 40
 // default font is serif
 // default slide aspect ratio is 16/9
+// default right and left spacing is 10
 // by default black bars are shown at the edges of slides if the aspect ratios don't match
 // by default there are no headers and footers
 
@@ -66,9 +67,9 @@ text
 // Every time you declare some content to be inserted (like text or images) the formatting previously defined is used.
 
 center // set the content alignment
-image_scale 0.5 // scales images by a certain factor
 
-image ./../example/test.png // more complicated paths are resolved
+// More complicated paths are resolved. You can scale images by a factor if you include it afterwards.
+image ./../example/test.png 0.5
 
 
 
@@ -98,7 +99,6 @@ slide fallthrough
 
 // This is a slide that implicitely contains all the content from the previous one to enable basic animations.
 // When dumping the slides to images, these slides are compressed into one.
-
 text
 This is a text line that "animated" using a fallthrough slide.
 text
@@ -119,8 +119,16 @@ pub fn main() !void {
 }
 text
 
+space 1
+left_space 50 // this alters the left spacing for the slide per section
 
-// You can define an optional unique header or footer just like a slide at the end of the file. It will be displayed on every slide it's not excluded from. Each definition ends on a new slide/header/footer declaration. They can't contain format specifiers that influence entire slides. Header definitions must precede footer definitions.
+// You can add colored quads by specifying color, width and height.
+quad 0xFF0000FF 200 300
+
+
+
+// You can define an optional unique header or footer just like a slide at the end of the file. It will be displayed on every slide it's not excluded from. Each definition ends on a new slide/header/footer declaration. They can't contain format specifiers that influence entire slides. Header definitions must precede footer definitions. All formatting specifications are reset once you start defining headers or footers, but they do carry over between the two.
+
 header
 font sans_serif
 text_color 0x00FF00FF

@@ -18,7 +18,6 @@ pub const Keyword = enum(usize) {
     space,
     text_size,
     image,
-    image_scale,
     line_spacing,
     font,
     file_drop_image,
@@ -28,6 +27,9 @@ pub const Keyword = enum(usize) {
     footer,
     no_header,
     no_footer,
+    quad,
+    left_space,
+    right_space,
 };
 
 pub const Token = union(enum) {
@@ -40,17 +42,19 @@ pub const Token = union(enum) {
     text: String,
     space: usize,
     text_size: usize,
-    image: String,
-    image_scale: f32,
+    image: Image,
     line_spacing: f64,
     font_style: FontStyle,
-    file_drop_image,
+    file_drop_image: f32, // scale
     aspect_ratio: f32,
     black_bars: bool,
     header,
     footer,
     no_header,
     no_footer,
+    quad: ColorQuad,
+    left_space: f64,
+    right_space: f64,
 };
 
 const Lexer = struct {
@@ -133,7 +137,10 @@ const Lexer = struct {
             if (last != ' ' and last != '\t') break;
             _ = self.buffer.pop().?;
         }
-        if (self.head() == '\n') self.ptr += 1; // skip the one newline
+        if (self.head() == '\n') {
+            self.ptr += 1; // skip the one newline
+            self.line += 1;
+        }
 
         return self.buffer.items;
     }
@@ -154,20 +161,18 @@ const Lexer = struct {
                         const parsed_color = data.Color32.fromHex(color_string);
                         if (parsed_color) |color| {
                             break :blk .{ .text_color = color };
-                        } else {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
-                            return error.LexerInvalidToken;
                         }
+                        std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
+                        return error.InvalidToken;
                     },
                     .bg => blk: {
                         const color_string = self.readNextWord();
                         const parsed_color = data.Color32.fromHex(color_string);
                         if (parsed_color) |color| {
                             break :blk .{ .bg = color };
-                        } else {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
-                            return error.LexerInvalidToken;
                         }
+                        std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
+                        return error.InvalidToken;
                     },
                     .slide => blk: {
                         const potential_fallthrough = self.peekNextWord();
@@ -183,7 +188,10 @@ const Lexer = struct {
                     .text => blk: {
                         var text = String.init(state.allocator);
                         errdefer text.deinit();
-                        if (self.head() == '\n') self.ptr += 1; // skip the newline after the keyword
+                        if (self.head() == '\n') {
+                            self.ptr += 1; // skip the newline after the keyword
+                            self.line += 1;
+                        }
                         var line = self.readUntilNewLine();
 
                         // This loop runs until the end of the file is found. In case the last word in the file is 'text' we also have to check for the line length to make shure to register it.
@@ -194,7 +202,7 @@ const Lexer = struct {
                             line = self.readUntilNewLine();
                         } else {
                             std.log.err("Line {}: 'text' | Lexer interupt", .{self.line});
-                            return error.LexerNoClosingKeyword;
+                            return error.NoClosingKeyword;
                         }
                         _ = text.pop(); // remove the trailing line break if present
                         break :blk .{ .text = text };
@@ -203,7 +211,7 @@ const Lexer = struct {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, int_string });
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
                         };
                         break :blk .{ .space = parsed_int };
                     },
@@ -211,7 +219,7 @@ const Lexer = struct {
                         const int_string = self.readNextWord();
                         const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, int_string });
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
                         };
                         break :blk .{ .text_size = parsed_int };
                     },
@@ -234,21 +242,21 @@ const Lexer = struct {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, resolved_path_owned.items });
                             return err;
                         };
-                        break :blk .{ .image = resolved_path_owned };
-                    },
-                    .image_scale => blk: {
-                        const scale_slice = self.readNextWord();
-                        const parsed_scale = std.fmt.parseFloat(f32, scale_slice) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, scale_slice });
-                            return error.LexerInvalidToken;
-                        };
-                        break :blk .{ .image_scale = parsed_scale };
+
+                        const scale_slice = self.peekNextWord();
+                        const scale = if (std.fmt.parseFloat(f32, scale_slice)) |scale| blk2: {
+                            _ = self.readNextWord();
+                            break :blk2 scale;
+                        } else |_|
+                            1.0; // default scale if not present
+
+                        break :blk .{ .image = .{ .path = resolved_path_owned, .scale = scale } };
                     },
                     .line_spacing => blk: {
                         const spacing_slice = self.readNextWord();
                         const parsed_spacing = std.fmt.parseFloat(f64, spacing_slice) catch {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, spacing_slice });
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
                         };
                         break :blk .{ .line_spacing = parsed_spacing };
                     },
@@ -262,11 +270,20 @@ const Lexer = struct {
                         else if (std.mem.eql(u8, font_slice, "monospace"))
                             .monospace
                         else
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
 
                         break :blk .{ .font_style = font_style };
                     },
-                    .file_drop_image => .file_drop_image,
+                    .file_drop_image => blk: {
+                        const scale_slice = self.peekNextWord();
+                        const scale = if (std.fmt.parseFloat(f32, scale_slice)) |scale| blk2: {
+                            _ = self.readNextWord();
+                            break :blk2 scale;
+                        } else |_|
+                            1.0; // default scale if not present
+
+                        break :blk .{ .file_drop_image = scale };
+                    },
                     .aspect_ratio => blk: {
                         const ratio_slice = self.readNextWord();
                         var number_it = data.SplitIterator{ .string = ratio_slice, .delimiter = '_' };
@@ -274,26 +291,26 @@ const Lexer = struct {
                         const width = if (number_it.next()) |num_slice|
                             std.fmt.parseInt(u8, num_slice, 10) catch {
                                 std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, num_slice });
-                                return error.LexerInvalidToken;
+                                return error.InvalidToken;
                             }
                         else {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
                         };
 
                         const height = if (number_it.next()) |num_slice|
                             std.fmt.parseInt(u8, num_slice, 10) catch {
                                 std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, num_slice });
-                                return error.LexerInvalidToken;
+                                return error.InvalidToken;
                             }
                         else {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
                         };
 
                         if (number_it.next() != null) {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
                         }
 
                         const ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
@@ -307,7 +324,7 @@ const Lexer = struct {
                             false
                         else {
                             std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, flag_slice });
-                            return error.LexerInvalidToken;
+                            return error.InvalidToken;
                         };
                         break :blk .{ .black_bars = flag_value };
                     },
@@ -315,13 +332,48 @@ const Lexer = struct {
                     .footer => .footer,
                     .no_header => .no_header,
                     .no_footer => .no_footer,
+                    .quad => blk: {
+                        const color_string = self.readNextWord();
+                        const parsed_color = data.Color32.fromHex(color_string);
+                        if (parsed_color == null) {
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
+                            return error.InvalidToken;
+                        }
+                        const width_string = self.readNextWord();
+                        const width = std.fmt.parseFloat(f32, width_string) catch {
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, width_string });
+                            return error.InvalidToken;
+                        };
+                        const height_string = self.readNextWord();
+                        const height = std.fmt.parseFloat(f32, height_string) catch {
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, height_string });
+                            return error.InvalidToken;
+                        };
+                        break :blk .{ .quad = .{ .color = parsed_color.?, .width = width, .height = height } };
+                    },
+                    .left_space => blk: {
+                        const string = self.readNextWord();
+                        const parsed = std.fmt.parseFloat(f64, string) catch {
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, string });
+                            return error.InvalidToken;
+                        };
+                        break :blk .{ .left_space = parsed };
+                    },
+                    .right_space => blk: {
+                        const string = self.readNextWord();
+                        const parsed = std.fmt.parseFloat(f64, string) catch {
+                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, string });
+                            return error.InvalidToken;
+                        };
+                        break :blk .{ .right_space = parsed };
+                    },
                 };
                 break;
             } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
                 _ = self.readUntilNewLine();
             } else {
                 std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, next_word });
-                return error.LexerUnknownKeyword;
+                return error.UnknownKeyword;
             }
         }
         return token;
@@ -329,25 +381,54 @@ const Lexer = struct {
 };
 
 pub const ImageSource = union(enum) {
-    path: String,
-    file_drop_image,
+    image: Image,
+    file_drop_image: f32, // scale
 
     const Self = @This();
 
-    fn clone(self: Self) !ImageSource {
+    fn clone(self: Self) !Self {
         switch (self) {
-            .path => |path| {
-                return .{ .path = try path.clone() };
-            },
-            .file_drop_image => return .file_drop_image,
+            .image => |image| return .{ .image = try image.clone() },
+            .file_drop_image => return self,
         }
     }
+
+    pub fn scale(self: Self) f32 {
+        switch (self) {
+            .image => |image| return image.scale,
+            .file_drop_image => |s| return s,
+        }
+    }
+};
+
+pub const Image = struct {
+    path: String,
+    scale: f32,
+
+    const Self = @This();
+
+    fn clone(self: *const Self) !Self {
+        var copy = self.*;
+        copy.path = try self.path.clone();
+        return copy;
+    }
+
+    fn deinit(self: Self) void {
+        self.path.deinit();
+    }
+};
+
+pub const ColorQuad = struct {
+    color: data.Color32,
+    width: f32,
+    height: f32,
 };
 
 pub const SectionType = union(enum) {
     space: usize,
     text: String,
-    image: ImageSource,
+    image_source: ImageSource,
+    quad: ColorQuad,
 };
 
 pub const ElementAlignment = enum { center, right, left };
@@ -359,31 +440,32 @@ pub const Section = struct {
     section_type: SectionType,
     text_color: data.Color32 = @bitCast(@as(u32, 0x000000FF)),
     alignment: ElementAlignment = .left,
-    image_scale: f32 = 1.0,
     line_spacing: f64 = 1.0,
     font_style: FontStyle = .serif,
+    left_space: f64 = 10,
+    right_space: f64 = 10,
 
     const Self = @This();
 
     fn clone(self: *const Self) !Section {
         var copy = self.*;
         switch (copy.section_type) {
-            .space => {},
             .text => |*text| {
                 text.* = try text.clone();
             },
-            .image => |*image_source| {
+            .image_source => |*image_source| {
                 image_source.* = try image_source.clone();
             },
+            .space, .quad => {},
         }
         return copy;
     }
 
-    fn deinit(self: *Self) void {
+    fn deinit(self: Self) void {
         switch (self.section_type) {
-            .image => |image_source| {
+            .image_source => |image_source| {
                 switch (image_source) {
-                    .path => |path| path.deinit(),
+                    .image => |image| image.deinit(),
                     .file_drop_image => {},
                 }
             },
@@ -415,7 +497,7 @@ pub const Slide = struct {
         return copy;
     }
 
-    fn deinit(self: *Self) void {
+    fn deinit(self: Self) void {
         for (self.sections.items) |*section| {
             section.deinit();
         }
@@ -630,7 +712,7 @@ fn parseSlideShow(file_contents: []const u8) !void {
             .text_size => |number| {
                 section.text_size = number;
             },
-            .image => |*path| {
+            .image => |*image| {
                 const location: SectionLocation = if (footer_defined)
                     .{ .marginal = &state.slide_show.footer }
                 else if (header_defined)
@@ -638,12 +720,9 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 else
                     .{ .slide = &slide };
 
-                section.section_type = .{ .image = .{ .path = path.* } };
-                try section.section_type.image.path.append(0); // for c interop later on
+                section.section_type = .{ .image_source = .{ .image = image.* } };
+                try section.section_type.image_source.image.path.append(0); // for c interop later on
                 try addSection(location, &section);
-            },
-            .image_scale => |scale| {
-                section.image_scale = scale;
             },
             .line_spacing => |spacing| {
                 section.line_spacing = spacing;
@@ -651,7 +730,7 @@ fn parseSlideShow(file_contents: []const u8) !void {
             .font_style => |style| {
                 section.font_style = style;
             },
-            .file_drop_image => {
+            .file_drop_image => |scale| {
                 const location: SectionLocation = if (footer_defined)
                     .{ .marginal = &state.slide_show.footer }
                 else if (header_defined)
@@ -659,7 +738,7 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 else
                     .{ .slide = &slide };
 
-                section.section_type = .{ .image = .file_drop_image };
+                section.section_type = .{ .image_source = .{ .file_drop_image = scale } };
                 try addSection(location, &section);
             },
             .aspect_ratio => |ratio| {
@@ -689,6 +768,7 @@ fn parseSlideShow(file_contents: []const u8) !void {
                     return error.HeaderDefinitionAfterFooter;
                 }
                 header_defined = true;
+                section = Section{ .section_type = undefined };
             },
             .footer => {
                 if (footer_defined) {
@@ -696,6 +776,7 @@ fn parseSlideShow(file_contents: []const u8) !void {
                     return error.MultipleFooters;
                 }
                 footer_defined = true;
+                if (!header_defined) section = Section{ .section_type = undefined };
             },
             .no_header => {
                 if (header_defined or footer_defined) {
@@ -710,6 +791,23 @@ fn parseSlideShow(file_contents: []const u8) !void {
                     return error.NoFooterInMarginal;
                 }
                 slide.exclude_footer = true;
+            },
+            .quad => |color_quad| {
+                const location: SectionLocation = if (footer_defined)
+                    .{ .marginal = &state.slide_show.footer }
+                else if (header_defined)
+                    .{ .marginal = &state.slide_show.header }
+                else
+                    .{ .slide = &slide };
+
+                section.section_type = .{ .quad = color_quad };
+                try addSection(location, &section);
+            },
+            .left_space => |space| {
+                section.left_space = space;
+            },
+            .right_space => |space| {
+                section.right_space = space;
             },
         }
     }
@@ -755,9 +853,10 @@ pub fn reloadSlideShow() !void {
     const slide_index = state.slide_show.slide_index;
 
     unloadSlideShow();
+    std.log.info("Reloading slide show...", .{});
     loadSlidesFromFile(state.slide_show.tracked_file.items);
 
-    state.slide_show.slide_index = @min(state.slide_show.slides.items.len, slide_index + 1) - 1;
+    state.slide_show.slide_index = @min(state.slide_show.slides.items.len -| 1, slide_index);
 }
 
 pub fn loadSlideShow(file_path: [:0]const u8) !void {

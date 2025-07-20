@@ -386,7 +386,7 @@ fn dumpSlidesPNG(compress_slides: bool) !void {
         state.window.swapBuffers(); // for animation
 
         _ = c.stbi_write_png(@ptrCast(slide_file_name.items), state.window.viewport_size_x, state.window.viewport_size_y, channels, @ptrCast(slide_mem), state.window.viewport_size_x * @as(c_int, channels));
-        std.log.info("Dumped slide {} to image file '{s}'.", .{slide_number, slide_file_name.items});
+        std.log.info("Dumped slide {} to image file: '{s}'.", .{slide_number, slide_file_name.items});
 
         slide_number += 1;
     }
