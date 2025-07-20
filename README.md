@@ -40,8 +40,8 @@ Here is a complete list:
 | no_header | - | Excludes the header from the current slide. |
 | no_footer | - | Excludes the footer from the current slide. |
 | quad | ``32bit Hex`` ``Float`` ``Float`` | Defines a quad with a color, width and height. |
-| left_space | ``Integer`` | Defines the space left on the left side of the slide. |
-| right_space | ``Integer`` | Defines the space left on the right side of the slide. |
+| left_space | ``Float`` | Defines the space left on the left side of the slide in pixels. |
+| right_space | ``Float`` | Defines the space left on the right side of the slide in pixels. |
 
 ``()`` specify optional parameters. ``""`` specify exact names.
 
