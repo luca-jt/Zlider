@@ -1,3 +1,2 @@
-slide templates
-layers + some settings are layer-specific
-footer placement for height
+slide templates (one layer just for the template)
+layers (enum to index in some array) + some settings are layer-specific

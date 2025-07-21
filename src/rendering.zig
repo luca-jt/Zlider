@@ -212,6 +212,7 @@ pub const Renderer = struct {
     sans_serif_font_data: FontData,
     monospace_font_data: FontData,
     file_drop_image: ?ImageData = null,
+    footer_height: f64 = 0,
 
     const Self = @This();
 
@@ -318,6 +319,8 @@ pub const Renderer = struct {
         self.sans_serif_font_data.clear();
         self.monospace_font_data.clear();
 
+        self.footer_height = 0;
+
         std.log.debug("Cleared renderer.", .{});
     }
 
@@ -389,6 +392,65 @@ pub const Renderer = struct {
         for (state.slide_show.footer.items) |*section| {
             self.loadSectionData(section);
         }
+
+        // update the footer height
+        for (state.slide_show.footer.items) |*section| {
+            //
+            // @Cleanup: For now this is just a simplified copy-paste from the rendering process.
+            // It might be smart to re-factor this in the future if you need all sorts of different iterations over section contents, maybe not.
+            // For more contextual comments, take a look at the rendering functions.
+            //
+            const font_data = switch (section.font_style) {
+                .serif => &self.serif_font_data,
+                .sans_serif => &self.sans_serif_font_data,
+                .monospace => &self.monospace_font_data,
+            };
+            const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent);
+            const sourced_font_size = section.text_size * font_render_size_multiplier;
+            const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / @as(f64, @floatFromInt(sourced_font_size));
+            const font_scale = @as(f64, @floatFromInt(sourced_font_size)) / line_height;
+
+            //
+            // In this version of the section content iteration, we don't want the yadvance to be negative, as we care about the height of the footer, not some coordinates for rendering.
+            //
+            const yadvance_font: f64 = (line_height + @as(f64, @floatFromInt(font_data.line_gap))) * section.line_spacing;
+            const yadvance = yadvance_font * font_scale * font_display_scale;
+
+            switch (section.section_type) {
+                .space => |lines| {
+                    self.footer_height += yadvance * @as(f64, @floatFromInt(lines));
+                },
+                .text => |text| {
+                    const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
+                    const space_width = charFontWidth(' ', &font_storage, font_display_scale);
+                    var line_iterator = data.SplitIterator{ .string = text.items, .delimiter = '\n' };
+
+                    while (line_iterator.next()) |line| {
+                        var word_iterator = data.SplitIterator{ .string = line, .delimiter = ' ' };
+                        while (word_iterator.next()) |first_word| : (self.footer_height += yadvance) {
+                            var line_width: f64 = sliceFontWidth(first_word, &font_storage, font_display_scale);
+
+                            while (word_iterator.peek(1)) |word| {
+                                const additional_width = space_width + sliceFontWidth(word, &font_storage, font_display_scale);
+                                if (line_width + additional_width > win.viewport_width_reference - section.left_space - section.right_space) break;
+                                line_width += additional_width;
+                                assert(word_iterator.next() != null);
+                            }
+                        }
+                    }
+                },
+                .image_source => |image_source| {
+                    const image_data = switch (image_source) {
+                        .image => |*image| self.images.get(image.path.items).?,
+                        .file_drop_image => self.file_drop_image.?,
+                    };
+                    self.footer_height += image_data.height * image_source.scale();
+                },
+                .quad => |color_quad| {
+                    self.footer_height += color_quad.height;
+                },
+            }
+        }
     }
 
     pub fn render(self: *Self) !void {
@@ -400,7 +462,7 @@ pub const Renderer = struct {
         const slide = slide_opt.?;
 
         var cursor_x: f64 = 0; // x position in pixel units
-        var cursor_y: f64 = 0; // y baseline position in pixel units
+        var cursor_y: f64 = -min_slide_bottom_top_spacing; // y baseline position in pixel units
 
         // render the header
         if (!slide.exclude_header) {
@@ -408,11 +470,14 @@ pub const Renderer = struct {
                 try self.renderSection(section, &cursor_x, &cursor_y);
             }
         }
+
         // render the slide contents
         for (slide.sections.items) |*section| {
             try self.renderSection(section, &cursor_x, &cursor_y);
         }
+
         // render the footer
+        cursor_y = -(win.viewport_height_reference - self.footer_height - min_slide_bottom_top_spacing);
         if (!slide.exclude_footer) {
             for (state.slide_show.footer.items) |*section| {
                 try self.renderSection(section, &cursor_x, &cursor_y);
@@ -428,7 +493,7 @@ pub const Renderer = struct {
             .sans_serif => &self.sans_serif_font_data,
             .monospace => &self.monospace_font_data,
         };
-        const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent);
+        const line_height: f64 = @floatFromInt(font_data.ascent - font_data.descent); // in font units
         const sourced_font_size = section.text_size * font_render_size_multiplier;
         const font_display_scale: f64 = @as(f64, @floatFromInt(section.text_size)) / @as(f64, @floatFromInt(sourced_font_size)); // needed as we are not sourcing the font size that is displayed
         const inverse_viewport_height = 1.0 / win.viewport_height_reference; // y-axis as scale reference
@@ -490,7 +555,7 @@ pub const Renderer = struct {
                                 },
                                 else => {
                                     const x_pos = (cursor_x.* + baked_char.xoff * font_display_scale) * inverse_viewport_height;
-                                    const y_pos = (cursor_y.* - line_height * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
+                                    const y_pos = (cursor_y.* - @as(f64, @floatFromInt(font_data.ascent)) * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
                                     // the switch of the sign of the y-offset is done to keep the way projections are done
 
                                     const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
@@ -741,3 +806,4 @@ pub const Renderer = struct {
 };
 
 const max_texture_count: usize = 32;
+const min_slide_bottom_top_spacing: f64 = 5;

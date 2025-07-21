@@ -178,7 +178,7 @@ pub const home_screen_slide: [:0]const u8 =
     \\bg 0x2C2E34FF
     \\text_size 10
     \\
-    \\space 6
+    \\space 13
     \\
     \\text_size 400
     \\
@@ -190,7 +190,7 @@ pub const home_screen_slide: [:0]const u8 =
     \\text_size 30
     \\font monospace
     \\
-    \\space 6
+    \\space 4
     \\
     \\text
     \\Drag and drop a slide show file to load.
