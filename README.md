@@ -21,7 +21,7 @@ Here is a complete list:
 
 | Keyword | Input Literal Type | Semantics |
 | :------ | :---- | :-------- |
-| aspect_ratio | ``Integer``_``Integer`` | Defines the aspect ratio of all the slides in a slide show by a fraction. |
+| aspect_ratio | ``Integer`` ``Integer`` | Defines the aspect ratio of all the slides in a slide show by a fraction. |
 | black_bars | ``Boolean`` | Flag to enable or disable black bars on the edges of the slides if aspect ratios don't match. |
 | bg | ``32bit Hex`` | Defines the background color of the slides with a hex value. |
 | text_color | ``32bit Hex`` | Defines the text color to be used with a hex value. |

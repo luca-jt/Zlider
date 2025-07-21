@@ -84,9 +84,13 @@ const Lexer = struct {
         return char;
     }
 
+    fn contents(self: *const Self) []const u8 {
+        return self.buffer.items;
+    }
+
     fn containedKeyword(self: *Self) ?Keyword {
         inline for (@typeInfo(Keyword).@"enum".fields) |field| {
-            if (std.mem.eql(u8, self.buffer.items, field.name)) {
+            if (std.mem.eql(u8, self.contents(), field.name)) {
                 return @enumFromInt(field.value);
             }
         }
@@ -105,17 +109,16 @@ const Lexer = struct {
         self.ptr += 1;
     }
 
-    fn readNextWord(self: *Self) []const u8 {
+    fn readNextWord(self: *Self) void {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
 
         while (self.head() != 0 and self.head() != ' ' and self.head() != '\t' and self.head() != '\n') {
             self.readChar();
         }
-        return self.buffer.items;
     }
 
-    fn peekNextWord(self: *Self) []const u8 {
+    fn peekNextWord(self: *Self) void {
         self.buffer.clearRetainingCapacity();
         self.skipWhiteSpace();
         const old_ptr = self.ptr;
@@ -124,10 +127,9 @@ const Lexer = struct {
             self.readChar();
         }
         self.ptr = old_ptr;
-        return self.buffer.items;
     }
 
-    fn readUntilNewLine(self: *Self) []const u8 {
+    fn readUntilNewLine(self: *Self) void {
         self.buffer.clearRetainingCapacity();
 
         while (self.head() != 0 and self.head() != '\n') {
@@ -141,8 +143,26 @@ const Lexer = struct {
             self.ptr += 1; // skip the one newline
             self.line += 1;
         }
+    }
 
-        return self.buffer.items;
+    fn readNextParameter(self: *Self, comptime T: type) !T {
+        const opt_param = self.readNextOptionalParameter(T);
+        if (opt_param) |param| return param;
+        std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, self.contents() });
+        return error.InvalidToken;
+    }
+
+    fn readNextOptionalParameter(self: *Self, comptime T: type) ?T {
+        self.peekNextWord();
+        const param = switch (T) {
+            data.Color32 => data.Color32.fromHex(self.contents()),
+            usize, u8 => if (std.fmt.parseInt(T, self.contents(), 10)) |parsed_int| parsed_int else |_| null,
+            f64, f32 => if (std.fmt.parseFloat(T, self.contents())) |parsed_float| parsed_float else |_| null,
+            bool => if (std.mem.eql(u8, self.contents(), "true")) true else if (std.mem.eql(u8, self.contents(), "false")) false else null,
+            else => @compileError("unsupported lexer parameter type"),
+        };
+        if (param != null) self.readNextWord();
+        return param;
     }
 
     fn nextToken(self: *Self) !?Token {
@@ -151,35 +171,17 @@ const Lexer = struct {
         self.skipWhiteSpace();
 
         while (self.head() != 0) {
-            const next_word = self.readNextWord();
-            if (next_word.len == 0) break;
+            self.readNextWord();
+            if (self.contents().len == 0) break;
 
             if (self.containedKeyword()) |keyword| {
                 token = switch (keyword) {
-                    .text_color => blk: {
-                        const color_string = self.readNextWord();
-                        const parsed_color = data.Color32.fromHex(color_string);
-                        if (parsed_color) |color| {
-                            break :blk .{ .text_color = color };
-                        }
-                        std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
-                        return error.InvalidToken;
-                    },
-                    .bg => blk: {
-                        const color_string = self.readNextWord();
-                        const parsed_color = data.Color32.fromHex(color_string);
-                        if (parsed_color) |color| {
-                            break :blk .{ .bg = color };
-                        }
-                        std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
-                        return error.InvalidToken;
-                    },
+                    .text_color => .{ .text_color = try self.readNextParameter(data.Color32) },
+                    .bg => .{ .bg = try self.readNextParameter(data.Color32) },
                     .slide => blk: {
-                        const potential_fallthrough = self.peekNextWord();
-                        const is_fallthrough = std.mem.eql(u8, potential_fallthrough, "fallthrough");
-                        if (is_fallthrough) {
-                            _ = self.readNextWord();
-                        }
+                        self.peekNextWord();
+                        const is_fallthrough = std.mem.eql(u8, self.contents(), "fallthrough");
+                        if (is_fallthrough) self.readNextWord();
                         break :blk .{ .slide = is_fallthrough };
                     },
                     .center => .center,
@@ -192,49 +194,35 @@ const Lexer = struct {
                             self.ptr += 1; // skip the newline after the keyword
                             self.line += 1;
                         }
-                        var line = self.readUntilNewLine();
-
+                        self.readUntilNewLine();
                         // This loop runs until the end of the file is found. In case the last word in the file is 'text' we also have to check for the line length to make shure to register it.
-                        while (self.head() != 0 or line.len != 0) {
-                            if (std.mem.eql(u8, line, "text")) break;
-                            if (line.len != 0) try text.appendSlice(line);
+                        while (self.head() != 0 or self.contents().len != 0) {
+                            if (std.mem.eql(u8, self.contents(), "text")) break;
+                            if (self.contents().len != 0) try text.appendSlice(self.contents());
                             try text.append('\n');
-                            line = self.readUntilNewLine();
+                            self.readUntilNewLine();
                         } else {
                             std.log.err("Line {}: 'text' | Lexer interupt", .{self.line});
                             return error.NoClosingKeyword;
                         }
                         _ = text.pop(); // remove the trailing line break if present
+
                         break :blk .{ .text = text };
                     },
-                    .space => blk: {
-                        const int_string = self.readNextWord();
-                        const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, int_string });
-                            return error.InvalidToken;
-                        };
-                        break :blk .{ .space = parsed_int };
-                    },
-                    .text_size => blk: {
-                        const int_string = self.readNextWord();
-                        const parsed_int = std.fmt.parseInt(usize, int_string, 10) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, int_string });
-                            return error.InvalidToken;
-                        };
-                        break :blk .{ .text_size = parsed_int };
-                    },
+                    .space => .{ .space = try self.readNextParameter(usize) },
+                    .text_size => .{ .text_size = try self.readNextParameter(usize) },
                     .image => blk: {
                         if (self.file_dir == null) {
                             std.log.err("Line {} | Lexer interupt", .{ self.line });
                             return error.ImageInInternalSource;
                         }
 
-                        const path_slice = self.readNextWord();
+                        self.readNextWord();
                         var full_image_path = String.init(state.allocator);
                         defer full_image_path.deinit();
                         try full_image_path.appendSlice(self.file_dir.?);
                         try full_image_path.append('/'); // i think this should be fine on windows
-                        try full_image_path.appendSlice(path_slice);
+                        try full_image_path.appendSlice(self.contents());
                         const resolved_path = try std.fs.path.resolve(state.allocator, &[_][]const u8{full_image_path.items});
                         const resolved_path_owned = String.fromOwnedSlice(state.allocator, resolved_path);
                         errdefer resolved_path_owned.deinit();
@@ -243,31 +231,19 @@ const Lexer = struct {
                             return err;
                         };
 
-                        const scale_slice = self.peekNextWord();
-                        const scale = if (std.fmt.parseFloat(f32, scale_slice)) |scale| blk2: {
-                            _ = self.readNextWord();
-                            break :blk2 scale;
-                        } else |_|
-                            1.0; // default scale if not present
+                        const scale = if (self.readNextOptionalParameter(f32)) |s| s else 1.0;
 
                         break :blk .{ .image = .{ .path = resolved_path_owned, .scale = scale } };
                     },
-                    .line_spacing => blk: {
-                        const spacing_slice = self.readNextWord();
-                        const parsed_spacing = std.fmt.parseFloat(f64, spacing_slice) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, spacing_slice });
-                            return error.InvalidToken;
-                        };
-                        break :blk .{ .line_spacing = parsed_spacing };
-                    },
+                    .line_spacing => .{ .line_spacing = try self.readNextParameter(f64) },
                     .font => blk: {
-                        const font_slice = self.readNextWord();
+                        self.readNextWord();
 
-                        const font_style: FontStyle = if (std.mem.eql(u8, font_slice, "serif"))
+                        const font_style: FontStyle = if (std.mem.eql(u8, self.contents(), "serif"))
                             .serif
-                        else if (std.mem.eql(u8, font_slice, "sans_serif"))
+                        else if (std.mem.eql(u8, self.contents(), "sans_serif"))
                             .sans_serif
-                        else if (std.mem.eql(u8, font_slice, "monospace"))
+                        else if (std.mem.eql(u8, self.contents(), "monospace"))
                             .monospace
                         else
                             return error.InvalidToken;
@@ -275,104 +251,34 @@ const Lexer = struct {
                         break :blk .{ .font_style = font_style };
                     },
                     .file_drop_image => blk: {
-                        const scale_slice = self.peekNextWord();
-                        const scale = if (std.fmt.parseFloat(f32, scale_slice)) |scale| blk2: {
-                            _ = self.readNextWord();
-                            break :blk2 scale;
-                        } else |_|
-                            1.0; // default scale if not present
-
+                        const scale = if (self.readNextOptionalParameter(f32)) |s| s else 1.0;
                         break :blk .{ .file_drop_image = scale };
                     },
                     .aspect_ratio => blk: {
-                        const ratio_slice = self.readNextWord();
-                        var number_it = data.SplitIterator{ .string = ratio_slice, .delimiter = '_' };
-
-                        const width = if (number_it.next()) |num_slice|
-                            std.fmt.parseInt(u8, num_slice, 10) catch {
-                                std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, num_slice });
-                                return error.InvalidToken;
-                            }
-                        else {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
-                            return error.InvalidToken;
-                        };
-
-                        const height = if (number_it.next()) |num_slice|
-                            std.fmt.parseInt(u8, num_slice, 10) catch {
-                                std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, num_slice });
-                                return error.InvalidToken;
-                            }
-                        else {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
-                            return error.InvalidToken;
-                        };
-
-                        if (number_it.next() != null) {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, ratio_slice });
-                            return error.InvalidToken;
-                        }
-
+                        const width = try self.readNextParameter(u8);
+                        const height = try self.readNextParameter(u8);
                         const ratio = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
                         break :blk .{ .aspect_ratio = ratio };
                     },
-                    .black_bars => blk: {
-                        const flag_slice = self.readNextWord();
-                        const flag_value = if (std.mem.eql(u8, flag_slice, "true"))
-                            true
-                        else if (std.mem.eql(u8, flag_slice, "false"))
-                            false
-                        else {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, flag_slice });
-                            return error.InvalidToken;
-                        };
-                        break :blk .{ .black_bars = flag_value };
-                    },
+                    .black_bars => .{ .black_bars = try self.readNextParameter(bool) },
                     .header => .header,
                     .footer => .footer,
                     .no_header => .no_header,
                     .no_footer => .no_footer,
                     .quad => blk: {
-                        const color_string = self.readNextWord();
-                        const parsed_color = data.Color32.fromHex(color_string);
-                        if (parsed_color == null) {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, color_string });
-                            return error.InvalidToken;
-                        }
-                        const width_string = self.readNextWord();
-                        const width = std.fmt.parseFloat(f32, width_string) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, width_string });
-                            return error.InvalidToken;
-                        };
-                        const height_string = self.readNextWord();
-                        const height = std.fmt.parseFloat(f32, height_string) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, height_string });
-                            return error.InvalidToken;
-                        };
-                        break :blk .{ .quad = .{ .color = parsed_color.?, .width = width, .height = height } };
+                        const color = try self.readNextParameter(data.Color32);
+                        const width = try self.readNextParameter(f32);
+                        const height = try self.readNextParameter(f32);
+                        break :blk .{ .quad = .{ .color = color, .width = width, .height = height } };
                     },
-                    .left_space => blk: {
-                        const string = self.readNextWord();
-                        const parsed = std.fmt.parseFloat(f64, string) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, string });
-                            return error.InvalidToken;
-                        };
-                        break :blk .{ .left_space = parsed };
-                    },
-                    .right_space => blk: {
-                        const string = self.readNextWord();
-                        const parsed = std.fmt.parseFloat(f64, string) catch {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, string });
-                            return error.InvalidToken;
-                        };
-                        break :blk .{ .right_space = parsed };
-                    },
+                    .left_space => .{ .left_space = try self.readNextParameter(f64) },
+                    .right_space => .{ .right_space = try self.readNextParameter(f64) },
                 };
                 break;
-            } else if (next_word.len >= 2 and std.mem.eql(u8, next_word[0..2], "//")) {
-                _ = self.readUntilNewLine();
+            } else if (self.contents().len >= 2 and std.mem.eql(u8, self.contents()[0..2], "//")) {
+                self.readUntilNewLine();
             } else {
-                std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, next_word });
+                std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, self.contents() });
                 return error.UnknownKeyword;
             }
         }

@@ -12,8 +12,8 @@
 
 // The text size is always relative to a 1080p screen (height is referenced even when the aspect ratio is different). This is done to retain spacing and scaling when displaying on larger (or smaller) screens. When dumping slides to file this reference size is always used for the output.
 
-// This defines a global aspect ratio for all the slides in the slides show.
-aspect_ratio 3_2
+// This defines a global aspect ratio for all the slides in the slides show (in this case 3:2).
+aspect_ratio 3 2
 
 // If you want the slide show to not have black bars on the edges when the window size doesnt match the aspect ratio of the slides, you can set this to false:
 //black_bars false
