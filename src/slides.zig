@@ -277,7 +277,7 @@ const Lexer = struct {
                     .right_space => .{ .right_space = try self.readNextParameter(f64) },
                     .layer => blk: {
                         const layer = try self.readNextParameter(usize);
-                        if (layer < 1 or layer > layer_count) {
+                        if (layer > layer_count - 1) {
                             std.log.err("Line {}: '{}' | Lexer interupt", .{ self.line, layer });
                             return error.ValueOutOfRange;
                         }
@@ -545,7 +545,7 @@ pub const SlideShow = struct {
 
 const ParseState = struct {
     slide: Slide,
-    current_layer: usize = 5, // the middle layer is the default one
+    current_layer: usize = 4, // the middle layer is the default one
     section: Section = Section{ .section_type = undefined },
     header_defined: bool = false,
     footer_defined: bool = false,
@@ -566,7 +566,7 @@ const ParseState = struct {
         else if (self.header_defined)
             &state.slide_show.header
         else
-            &self.slide.layers[self.current_layer - 1];
+            &self.slide.layers[self.current_layer];
 
         try location.append(self.section);
         self.section.section_type = undefined;
@@ -583,6 +583,31 @@ const ParseState = struct {
             const bg_color = self.slide.background_color;
             self.slide = Slide.init();
             self.slide.background_color = bg_color;
+        }
+    }
+
+    fn changeLayer(self: *Self, layer: usize) void {
+        if (self.current_layer == layer) return;
+        self.current_layer = layer;
+
+        // source the formatting from newest section on this layer
+        if (self.slide.layers[layer].getLastOrNull()) |last_section| {
+            self.section = last_section;
+            self.section.section_type = undefined;
+        } else {
+            // we check older slides for format spec to source
+            var i = state.slide_show.slides.items.len - 1;
+            while (i > 0) : (i -= 1) {
+                const slide_to_check = state.slide_show.slides.items[i];
+                if (slide_to_check.layers[layer].getLastOrNull()) |last_section| {
+                    self.section = last_section;
+                    self.section.section_type = undefined;
+                    break;
+                }
+            } else {
+                // fallback to the default format specs
+                self.section = Section{ .section_type = undefined };
+            }
         }
     }
 };
@@ -713,7 +738,7 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 parse_state.section.right_space = space;
             },
             .layer => |layer| {
-                parse_state.current_layer = layer;
+                parse_state.changeLayer(layer);
             },
         }
     }

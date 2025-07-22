@@ -9,7 +9,7 @@
 // default right and left spacing is 10
 // by default black bars are shown at the edges of slides if the aspect ratios don't match
 // by default there are no headers and footers
-// default depth layer is 5 (the middle one)
+// default depth layer is 4 (the middle one)
 
 // The text size is always relative to a 1080p screen (height is referenced even when the aspect ratio is different). This is done to retain spacing and scaling when displaying on larger (or smaller) screens. When dumping slides to file this reference size is always used for the output.
 
@@ -130,11 +130,16 @@ quad 0xFF0000FF 200 300
 
 slide fallthrough
 
-layer 4 // define the current depth layer to render to in range [1, 10]
+layer 3 // define the current depth layer to render to in range [0, 9]
 space 10
 left_space 150
 quad 0x0000FFFF 800 300
+text_color 0xFFFFFFFF
+text
+The format of this text is reset.
+text
 
+// Once you change the current layer to work on, all formatting specs will be reset to the last state on that layer. However, if you change formatting right before changing the layer without adding new content, that format specification is lost when changing the layer back to the original one. Format spec will be tracked across slides for every layer.
 
 
 // You can define an optional unique header or footer just like a slide at the end of the file. It will be displayed on every slide it's not excluded from. Each definition ends on a new slide/header/footer declaration. They can't contain format specifiers that influence entire slides. Header definitions must precede footer definitions. All formatting specifications are reset once you start defining headers or footers, but they do carry over between the two.
