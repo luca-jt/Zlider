@@ -126,6 +126,10 @@ left_space 50 // this alters the left spacing for the slide per section
 // You can add colored quads by specifying color, width and height.
 quad 0xFF0000FF 200 300
 
+
+
+slide fallthrough
+
 layer 4 // define the current depth layer to render to in range [1, 10]
 space 10
 left_space 150
