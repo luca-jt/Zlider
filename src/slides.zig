@@ -30,6 +30,7 @@ pub const Keyword = enum(usize) {
     quad,
     left_space,
     right_space,
+    layer,
 };
 
 pub const Token = union(enum) {
@@ -55,6 +56,7 @@ pub const Token = union(enum) {
     quad: ColorQuad,
     left_space: f64,
     right_space: f64,
+    layer: usize,
 };
 
 const Lexer = struct {
@@ -273,6 +275,14 @@ const Lexer = struct {
                     },
                     .left_space => .{ .left_space = try self.readNextParameter(f64) },
                     .right_space => .{ .right_space = try self.readNextParameter(f64) },
+                    .layer => blk: {
+                        const layer = try self.readNextParameter(usize);
+                        if (layer < 1 or layer > layer_count) {
+                            std.log.err("Line {}: '{}' | Lexer interupt", .{ self.line, layer });
+                            return error.ValueOutOfRange;
+                        }
+                        break :blk .{ .layer = layer };
+                    },
                 };
                 break;
             } else if (self.contents().len >= 2 and std.mem.eql(u8, self.contents()[0..2], "//")) {
@@ -381,33 +391,41 @@ pub const Section = struct {
     }
 };
 
+pub const layer_count: usize = 10;
+
 pub const Slide = struct {
     background_color: data.Color32 = @bitCast(@as(u32, 0xFFFFFFFF)),
     has_fallthrough_successor: bool = false,
     exclude_header: bool = false,
     exclude_footer: bool = false,
-    sections: ArrayList(Section),
+    layers: [layer_count]ArrayList(Section), // one section array for each of the 10 layers
 
     const Self = @This();
 
     fn init() Self {
-        return .{ .sections = ArrayList(Section).init(state.allocator) };
+        var self: Self = .{ .layers = [_]ArrayList(Section){ undefined } ** layer_count };
+        for (&self.layers) |*section_array| section_array.* = ArrayList(Section).init(state.allocator);
+        return self;
     }
 
     fn clone(self: *const Self) !Slide {
         var copy = self.*;
-        copy.sections = try self.sections.clone();
-        for (copy.sections.items) |*section| {
-            section.* = try section.clone();
+        for (&copy.layers) |*section_array| {
+            section_array.* = try section_array.clone();
+            for (section_array.items) |*section| {
+                section.* = try section.clone();
+            }
         }
         return copy;
     }
 
     fn deinit(self: Self) void {
-        for (self.sections.items) |*section| {
-            section.deinit();
+        for (&self.layers) |section_array| {
+            for (section_array.items) |*section| {
+                section.deinit();
+            }
+            section_array.deinit();
         }
-        self.sections.deinit();
     }
 };
 
@@ -523,34 +541,51 @@ pub const SlideShow = struct {
     pub fn containsSlides(self: *const Self) bool {
         return self.slides.items.len > 0;
     }
+};
 
-    fn newSlide(self: *Self, slide: *Slide, is_fallthrough: bool) !void {
+const ParseState = struct {
+    slide: Slide,
+    current_layer: usize = 5, // the middle layer is the default one
+    section: Section = Section{ .section_type = undefined },
+    header_defined: bool = false,
+    footer_defined: bool = false,
+
+    const Self = @This();
+
+    fn init() Self {
+        return .{ .slide = Slide.init() };
+    }
+
+    fn deinit(self: Self) void {
+        self.slide.deinit();
+    }
+
+    fn addSection(self: *Self) !void {
+        const location = if (self.footer_defined)
+            &state.slide_show.footer
+        else if (self.header_defined)
+            &state.slide_show.header
+        else
+            &self.slide.layers[self.current_layer - 1];
+
+        try location.append(self.section);
+        self.section.section_type = undefined;
+    }
+
+    fn addSlide(self: *Self, is_fallthrough: bool) !void {
         if (is_fallthrough) {
-            const slide_clone = try slide.clone();
-            slide.has_fallthrough_successor = true;
-            try self.slides.append(slide.*);
-            slide.* = slide_clone;
+            const slide_clone = try self.slide.clone();
+            self.slide.has_fallthrough_successor = true;
+            try state.slide_show.slides.append(self.slide);
+            self.slide = slide_clone;
         } else {
-            try self.slides.append(slide.*);
-            const bg_color = slide.background_color;
-            slide.* = Slide.init();
-            slide.background_color = bg_color;
+            try state.slide_show.slides.append(self.slide);
+            const bg_color = self.slide.background_color;
+            self.slide = Slide.init();
+            self.slide.background_color = bg_color;
         }
     }
 };
-
-const SectionLocation = union(enum) {
-    slide: *Slide,
-    marginal: *ArrayList(Section), // header/footer
-};
-
-fn addSection(location: SectionLocation, section: *Section) !void {
-    switch (location) {
-        .slide => |slide| try slide.sections.append(section.*),
-        .marginal => |marginal| try marginal.append(section.*),
-    }
-    section.section_type = undefined;
-}
 
 fn parseSlideShow(file_contents: []const u8) !void {
     errdefer unloadSlideShow();
@@ -559,96 +594,65 @@ fn parseSlideShow(file_contents: []const u8) !void {
     var lexer = try Lexer.initWithInput(file_contents, slide_file_dir);
     defer lexer.deinit();
 
-    var slide = Slide.init();
-    errdefer slide.sections.deinit();
-    var section = Section{ .section_type = undefined };
-    var header_defined = false;
-    var footer_defined = false;
+    var parse_state = ParseState.init();
+    errdefer parse_state.deinit(); // the final slide is consumed and doesn't have to be deinitialized without error
 
     while (try lexer.nextToken()) |token| {
         switch (token) {
             .text_color => |color| {
-                section.text_color = color;
+                parse_state.section.text_color = color;
             },
             .bg => |color| {
-                if (header_defined or footer_defined) {
+                if (parse_state.header_defined or parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.BackgroundColorInMarginal;
                 }
-                slide.background_color = color;
+                parse_state.slide.background_color = color;
             },
             .slide => |is_fallthrough| {
-                if (header_defined or footer_defined) {
+                if (parse_state.header_defined or parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.SlideAfterMarginalDefinition;
                 }
-                try state.slide_show.newSlide(&slide, is_fallthrough);
+                try parse_state.addSlide(is_fallthrough);
             },
             .center => {
-                section.alignment = .center;
+                parse_state.section.alignment = .center;
             },
             .left => {
-                section.alignment = .left;
+                parse_state.section.alignment = .left;
             },
             .right => {
-                section.alignment = .right;
+                parse_state.section.alignment = .right;
             },
             .text => |string| {
-                const location: SectionLocation = if (footer_defined)
-                    .{ .marginal = &state.slide_show.footer }
-                else if (header_defined)
-                    .{ .marginal = &state.slide_show.header }
-                else
-                    .{ .slide = &slide };
-
-                section.section_type = .{ .text = string };
-                try addSection(location, &section);
+                parse_state.section.section_type = .{ .text = string };
+                try parse_state.addSection();
             },
             .space => |lines| {
-                const location: SectionLocation = if (footer_defined)
-                    .{ .marginal = &state.slide_show.footer }
-                else if (header_defined)
-                    .{ .marginal = &state.slide_show.header }
-                else
-                    .{ .slide = &slide };
-
-                section.section_type = .{ .space = lines };
-                try addSection(location, &section);
+                parse_state.section.section_type = .{ .space = lines };
+                try parse_state.addSection();
             },
             .text_size => |number| {
-                section.text_size = number;
+                parse_state.section.text_size = number;
             },
             .image => |*image| {
-                const location: SectionLocation = if (footer_defined)
-                    .{ .marginal = &state.slide_show.footer }
-                else if (header_defined)
-                    .{ .marginal = &state.slide_show.header }
-                else
-                    .{ .slide = &slide };
-
-                section.section_type = .{ .image_source = .{ .image = image.* } };
-                try section.section_type.image_source.image.path.append(0); // for c interop later on
-                try addSection(location, &section);
+                parse_state.section.section_type = .{ .image_source = .{ .image = image.* } };
+                try parse_state.section.section_type.image_source.image.path.append(0); // for c interop later on
+                try parse_state.addSection();
             },
             .line_spacing => |spacing| {
-                section.line_spacing = spacing;
+                parse_state.section.line_spacing = spacing;
             },
             .font_style => |style| {
-                section.font_style = style;
+                parse_state.section.font_style = style;
             },
             .file_drop_image => |scale| {
-                const location: SectionLocation = if (footer_defined)
-                    .{ .marginal = &state.slide_show.footer }
-                else if (header_defined)
-                    .{ .marginal = &state.slide_show.header }
-                else
-                    .{ .slide = &slide };
-
-                section.section_type = .{ .image_source = .{ .file_drop_image = scale } };
-                try addSection(location, &section);
+                parse_state.section.section_type = .{ .image_source = .{ .file_drop_image = scale } };
+                try parse_state.addSection();
             },
             .aspect_ratio => |ratio| {
-                if (header_defined or footer_defined) {
+                if (parse_state.header_defined or parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.AspectRatioInMarginal;
                 }
@@ -657,7 +661,7 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 state.renderer.updateMatrices();
             },
             .black_bars => |flag| {
-                if (header_defined or footer_defined) {
+                if (parse_state.header_defined or parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.BlackBarsInMarginal;
                 }
@@ -665,61 +669,57 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 state.window.updateViewport(state.window.size_x, state.window.size_y);
             },
             .header => {
-                if (header_defined) {
+                if (parse_state.header_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.MultipleHeaders;
                 }
-                if (footer_defined) {
+                if (parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.HeaderDefinitionAfterFooter;
                 }
-                header_defined = true;
-                section = Section{ .section_type = undefined };
+                parse_state.header_defined = true;
+                parse_state.section = Section{ .section_type = undefined };
             },
             .footer => {
-                if (footer_defined) {
+                if (parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.MultipleFooters;
                 }
-                footer_defined = true;
-                if (!header_defined) section = Section{ .section_type = undefined };
+                parse_state.footer_defined = true;
+                if (!parse_state.header_defined) parse_state.section = Section{ .section_type = undefined };
             },
             .no_header => {
-                if (header_defined or footer_defined) {
+                if (parse_state.header_defined or parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.NoHeaderInMarginal;
                 }
-                slide.exclude_header = true;
+                parse_state.slide.exclude_header = true;
             },
             .no_footer => {
-                if (header_defined or footer_defined) {
+                if (parse_state.header_defined or parse_state.footer_defined) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.NoFooterInMarginal;
                 }
-                slide.exclude_footer = true;
+                parse_state.slide.exclude_footer = true;
             },
             .quad => |color_quad| {
-                const location: SectionLocation = if (footer_defined)
-                    .{ .marginal = &state.slide_show.footer }
-                else if (header_defined)
-                    .{ .marginal = &state.slide_show.header }
-                else
-                    .{ .slide = &slide };
-
-                section.section_type = .{ .quad = color_quad };
-                try addSection(location, &section);
+                parse_state.section.section_type = .{ .quad = color_quad };
+                try parse_state.addSection();
             },
             .left_space => |space| {
-                section.left_space = space;
+                parse_state.section.left_space = space;
             },
             .right_space => |space| {
-                section.right_space = space;
+                parse_state.section.right_space = space;
+            },
+            .layer => |layer| {
+                parse_state.current_layer = layer;
             },
         }
     }
 
     // create the last slide
-    try state.slide_show.slides.append(slide);
+    try state.slide_show.slides.append(parse_state.slide);
 
     if (state.slide_show.slides.items.len > 999) return error.TooManySlides;
     std.log.debug("Parsed slide show.", .{});

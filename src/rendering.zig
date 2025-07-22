@@ -382,8 +382,10 @@ pub const Renderer = struct {
 
     pub fn loadSlideData(self: *Self) void {
         for (state.slide_show.slides.items) |*slide| {
-            for (slide.sections.items) |*section| {
-                self.loadSectionData(section);
+            for (&slide.layers) |*section_array| {
+                for (section_array.items) |*section| {
+                    self.loadSectionData(section);
+                }
             }
         }
         for (state.slide_show.header.items) |*section| {
@@ -463,31 +465,37 @@ pub const Renderer = struct {
 
         var cursor_x: f64 = 0; // x position in pixel units
         var cursor_y: f64 = -min_slide_bottom_top_spacing; // y baseline position in pixel units
+        const marginal_render_depth: f32 = 0; // headers and footers are always rendered on top
 
         // render the header
         if (!slide.exclude_header) {
             for (state.slide_show.header.items) |*section| {
-                try self.renderSection(section, &cursor_x, &cursor_y);
+                try self.renderSection(section, &cursor_x, &cursor_y, marginal_render_depth);
             }
         }
+        const after_header_y = cursor_y;
 
         // render the slide contents
-        for (slide.sections.items) |*section| {
-            try self.renderSection(section, &cursor_x, &cursor_y);
+        for (&slide.layers, 0..) |*section_array, i| {
+            const layer_depth = -@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(slides.layer_count));
+            cursor_y = after_header_y;
+            for (section_array.items) |*section| {
+                try self.renderSection(section, &cursor_x, &cursor_y, layer_depth);
+            }
         }
 
         // render the footer
         cursor_y = -(win.viewport_height_reference - self.footer_height - min_slide_bottom_top_spacing);
         if (!slide.exclude_footer) {
             for (state.slide_show.footer.items) |*section| {
-                try self.renderSection(section, &cursor_x, &cursor_y);
+                try self.renderSection(section, &cursor_x, &cursor_y, marginal_render_depth);
             }
         }
 
         self.flush();
     }
 
-    fn renderSection(self: *Self, section: *const slides.Section, cursor_x: *f64, cursor_y: *f64) !void {
+    fn renderSection(self: *Self, section: *const slides.Section, cursor_x: *f64, cursor_y: *f64, layer_depth: f32) !void {
         const font_data = switch (section.font_style) {
             .serif => &self.serif_font_data,
             .sans_serif => &self.sans_serif_font_data,
@@ -558,7 +566,7 @@ pub const Renderer = struct {
                                     const y_pos = (cursor_y.* - @as(f64, @floatFromInt(font_data.ascent)) * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
                                     // the switch of the sign of the y-offset is done to keep the way projections are done
 
-                                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+                                    const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), layer_depth);
 
                                     // the baked char data used does not require scaling because it would just cancel out
                                     const scale = lina.Mat4.scale(.{ .x = @as(f32, @floatFromInt(baked_char.x1 - baked_char.x0)) / @as(f32, @floatFromInt(baked_char.y1 - baked_char.y0)), .y = 1.0, .z = 1.0, });
@@ -596,7 +604,7 @@ pub const Renderer = struct {
 
                 const x_pos = cursor_x.* * inverse_viewport_height;
                 const y_pos = cursor_y.* * inverse_viewport_height;
-                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), layer_depth);
 
                 const image_scale = lina.Mat4.scaleFromFactor(image_source.scale());
                 const scale = lina.Mat4.scale(.{ .x = image_data.width / image_data.height, .y = 1.0, .z = 1.0, });
@@ -618,7 +626,7 @@ pub const Renderer = struct {
 
                 const x_pos = cursor_x.* * inverse_viewport_height;
                 const y_pos = cursor_y.* * inverse_viewport_height;
-                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), 0.0); // the z coord might change in the future with support for layers
+                const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), layer_depth);
 
                 const scale = lina.Mat4.scale(.{ .x = color_quad.width / color_quad.height, .y = 1.0, .z = 1.0, });
                 const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * color_quad.height);
