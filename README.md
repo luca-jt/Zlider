@@ -35,7 +35,7 @@ Here is a complete list:
 | block | - | Alignment specifier that produces block text and left-aligns other contents. |
 | slide | ("fallthrough") | Seperator between slides. |
 | text | ``String`` text | Marks the beginning and end of a text block. |
-| space | ``Integer`` | Inserts a given amount of empty lines. |
+| space | ``Float`` | Inserts a given amount of empty space in pixels. |
 | image | ``String`` (``Float``) (``Float``) | Inserts an image given by the path relative to the slide show file with an optional scale and optional rotation angle in degrees. |
 | header | - | Defines a header for all slides at the end of the file. |
 | footer | - | Defines a footer for all slides at the end of the file. |

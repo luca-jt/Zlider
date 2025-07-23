@@ -422,8 +422,8 @@ pub const Renderer = struct {
             const yadvance = yadvance_font * font_scale * font_display_scale;
 
             switch (section.section_type) {
-                .space => |lines| {
-                    self.footer_height += yadvance * @as(f64, @floatFromInt(lines));
+                .space => |pixels| {
+                    self.footer_height += pixels;
                 },
                 .text => |text| {
                     const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
@@ -525,8 +525,8 @@ pub const Renderer = struct {
         const yadvance = yadvance_font * font_scale * font_display_scale; // this is the specific yadvance accounting for font sizes
 
         switch (section.section_type) {
-            .space => |lines| {
-                cursor_y.* += yadvance * @as(f64, @floatFromInt(lines));
+            .space => |pixels| {
+                cursor_y.* -= pixels;
             },
             .text => |text| {
                 if (cursor_y.* == 0) cursor_y.* = -min_slide_bottom_top_spacing; // this offset is only for text

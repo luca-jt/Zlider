@@ -42,7 +42,7 @@ pub const Token = union(enum) {
     slide: bool, // wether or not the slide is a fallthrough slide
     alignment: ElementAlignment,
     text: String,
-    space: usize,
+    space: f64,
     text_size: usize,
     image: Image,
     line_spacing: f64,
@@ -232,7 +232,7 @@ const Lexer = struct {
 
                         break :blk .{ .text = text };
                     },
-                    .space => .{ .space = try self.readNextParameter(usize) },
+                    .space => .{ .space = try self.readNextParameter(f64) },
                     .text_size => .{ .text_size = try self.readNextParameter(usize) },
                     .image => blk: {
                         if (self.file_dir == null) {
@@ -360,7 +360,7 @@ pub const ColorQuad = struct {
 };
 
 pub const SectionType = union(enum) {
-    space: usize,
+    space: f64,
     text: String,
     image_source: ImageSource,
     quad: ColorQuad,
@@ -687,8 +687,8 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 parse_state.section.section_type = .{ .text = string };
                 try parse_state.addSection();
             },
-            .space => |lines| {
-                parse_state.section.section_type = .{ .space = lines };
+            .space => |pixels| {
+                parse_state.section.section_type = .{ .space = pixels };
                 try parse_state.addSection();
             },
             .text_size => |number| {

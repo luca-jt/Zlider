@@ -24,8 +24,8 @@ text
 This is a test slide that displays text and an image with some spacing in between.
 text
 
-// insert a number of line spacings
-space 1
+// insert spacing in pixels
+space 50
 
 // include an image (path is relative to the slide show file)
 image test.png
@@ -119,7 +119,7 @@ pub fn main() !void {
 }
 text
 
-space 1
+space 50
 left_space 50 // this alters the left spacing for the slide per section
 
 // You can add colored quads by specifying color, width and height.
@@ -130,7 +130,7 @@ quad 0xFF0000FF 200 300
 slide fallthrough
 
 layer 3 // define the current depth layer to render to in range [0, 9]
-space 10
+space 400
 left_space 150
 quad 0x0000FFFF 800 300
 text_color 0xFFFFFFFF
@@ -145,7 +145,7 @@ slide fallthrough
 
 layer 5
 text_color 0xFFFFFFFF
-space 20
+space 770
 text_size 45
 block
 left_space 200
@@ -166,13 +166,13 @@ text_color 0x00FF00FF
 text_size 30
 text
 This is a header.
+
 text
-space 1
 
 footer
 right
-space 1
 text
+
 This is a footer.
 text
 
