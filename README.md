@@ -35,7 +35,7 @@ Here is a complete list:
 | slide | ("fallthrough") | Seperator between slides. |
 | text | ``String`` text | Marks the beginning and end of a text block. |
 | space | ``Integer`` | Inserts a given amount of empty lines. |
-| image | ``String`` (``Float``) | Inserts an image given by the path relative to the slide show file with an optional scale. |
+| image | ``String`` (``Float``) (``Float``) | Inserts an image given by the path relative to the slide show file with an optional scale and optional rotation angle in degrees. |
 | header | - | Defines a header for all slides at the end of the file. |
 | footer | - | Defines a footer for all slides at the end of the file. |
 | no_header | - | Excludes the header from the current slide. |
@@ -43,6 +43,8 @@ Here is a complete list:
 | quad | ``32bit Hex`` ``Float`` ``Float`` | Defines a quad with a color, width and height. |
 | left_space | ``Float`` | Defines the space left on the left side of the slide in pixels. |
 | right_space | ``Float`` | Defines the space left on the right side of the slide in pixels. |
+| template | - | Defines a slide background layer at the end of the file that is added to every slide. |
+| no_template | - | Excludes the template from a slide. |
 
 ``()`` specify optional parameters. ``""`` specify exact names.
 

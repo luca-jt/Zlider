@@ -1,1 +1,3 @@
-slide templates (one layer just for the template)
+basic symbols baked in like arrows -> baked images are handled better, no enum mess
+block text
+custom ttf file loading

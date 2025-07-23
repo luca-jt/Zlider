@@ -26,6 +26,14 @@ pub fn LinAlgTypes(comptime T: type) type {
                     return result;
                 }
 
+                pub fn negate(self: Self) Self {
+                    var result: Self = undefined;
+                    inline for (@typeInfo(Self).@"struct".fields) |field| {
+                        @field(result, field.name) = -@field(self, field.name);
+                    }
+                    return result;
+                }
+
                 pub fn add(a: Self, b: Self) Self {
                     var result: Self = undefined;
                     inline for (@typeInfo(Self).@"struct".fields) |field| {
@@ -150,8 +158,8 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub const zero = Self.new(0, 0);
             pub const one = Self.new(1, 1);
-            pub const unitX = Self.new(1, 0);
-            pub const unitY = Self.new(0, 1);
+            pub const unit_x = Self.new(1, 0);
+            pub const unit_y = Self.new(0, 1);
 
             pub usingnamespace VectorFunctions(Self);
 
@@ -189,9 +197,9 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub const zero = Self.new(0, 0, 0);
             pub const one = Self.new(1, 1, 1);
-            pub const unitX = Self.new(1, 0, 0);
-            pub const unitY = Self.new(0, 1, 0);
-            pub const unitZ = Self.new(0, 0, 1);
+            pub const unit_x = Self.new(1, 0, 0);
+            pub const unit_y = Self.new(0, 1, 0);
+            pub const unit_z = Self.new(0, 0, 1);
 
             pub usingnamespace VectorFunctions(Self);
 
@@ -253,10 +261,10 @@ pub fn LinAlgTypes(comptime T: type) type {
 
             pub const zero = Self.new(0, 0, 0, 0);
             pub const one = Self.new(1, 1, 1, 1);
-            pub const unitX = Self.new(1, 0, 0, 0);
-            pub const unitY = Self.new(0, 1, 0, 0);
-            pub const unitZ = Self.new(0, 0, 1, 0);
-            pub const unitW = Self.new(0, 0, 0, 1);
+            pub const unit_x = Self.new(1, 0, 0, 0);
+            pub const unit_y = Self.new(0, 1, 0, 0);
+            pub const unit_z = Self.new(0, 0, 1, 0);
+            pub const unit_w = Self.new(0, 0, 0, 1);
 
             pub usingnamespace VectorFunctions(Self);
 
@@ -532,7 +540,7 @@ pub fn LinAlgTypes(comptime T: type) type {
                 return result;
             }
 
-            pub fn invert(m: Self) ?Self {
+            pub fn tryInvert(m: Self) ?Self {
                 // https://github.com/stackgl/gl-mat4/blob/master/invert.js
                 const a: [16]T = @bitCast(m.fields);
 

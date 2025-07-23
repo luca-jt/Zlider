@@ -32,10 +32,10 @@ image test.png
 
 // Inserting images, spacings, and text creates a new context section. You can define formatting etc. for them before inserting the content. Inserted content always uses the last value defined for a formatting option.
 
-// If you dont want the footer or header to be used on a slide, you can use these keywords to exclude them. This might be useful for cover sheets.
+// If you dont want the header/footer/template to be used on a slide, you can use these keywords to exclude them. This might be useful for cover sheets.
 no_footer
 no_header
-
+no_template
 
 
 slide // declare a new slide like this
@@ -43,7 +43,7 @@ slide // declare a new slide like this
 // settings from previous slides will be kept
 
 // set the background color for the entire slide
-bg 0x2C2E34FF
+bg 0xAAAAAAFF
 
 font sans_serif // set the font
 
@@ -69,8 +69,8 @@ text
 
 center // set the content alignment
 
-// More complicated paths are resolved. You can scale images by a factor if you include it afterwards.
-image ./../example/test.png 0.5
+// More complicated paths are resolved. You can scale images by a factor if you include it afterwards. You can also add a rotation angle in degrees after the scaling. If you only want to rotate, you will need to add a scale of 1.
+image ./../example/test.png 0.5 -45
 
 
 
@@ -80,7 +80,6 @@ font sans_serif
 text_size 40
 left
 line_spacing 1.0
-bg 0x000000FF
 text_color 0xFFFFFFFF
 // set the line spacing factor for the section formatting
 line_spacing 1.8
@@ -159,3 +158,10 @@ space 1
 text
 This is a footer.
 text
+
+
+// You can also define a slide template at the end of the file. The data defined here will be added on every slide below all layers. This is useful e.g. for designed backgrounds.
+template
+
+center
+image gradient.png 0.5

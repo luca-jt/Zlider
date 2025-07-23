@@ -31,6 +31,8 @@ pub const Keyword = enum(usize) {
     left_space,
     right_space,
     layer,
+    template,
+    no_template,
 };
 
 pub const Token = union(enum) {
@@ -57,6 +59,8 @@ pub const Token = union(enum) {
     left_space: f64,
     right_space: f64,
     layer: usize,
+    template,
+    no_template,
 };
 
 const Lexer = struct {
@@ -233,9 +237,10 @@ const Lexer = struct {
                             return err;
                         };
 
-                        const scale = if (self.readNextOptionalParameter(f32)) |s| s else 1.0;
+                        const scale = if (self.readNextOptionalParameter(f32)) |s| s else 1;
+                        const rotation = if (self.readNextOptionalParameter(f32)) |r| std.math.degreesToRadians(r) else 0;
 
-                        break :blk .{ .image = .{ .path = resolved_path_owned, .scale = scale } };
+                        break :blk .{ .image = .{ .path = resolved_path_owned, .scale = scale, .rotation = rotation } };
                     },
                     .line_spacing => .{ .line_spacing = try self.readNextParameter(f64) },
                     .font => blk: {
@@ -283,6 +288,8 @@ const Lexer = struct {
                         }
                         break :blk .{ .layer = layer };
                     },
+                    .template => .template,
+                    .no_template => .no_template,
                 };
                 break;
             } else if (self.contents().len >= 2 and std.mem.eql(u8, self.contents()[0..2], "//")) {
@@ -315,11 +322,19 @@ pub const ImageSource = union(enum) {
             .file_drop_image => |s| return s,
         }
     }
+
+    pub fn rotation(self: Self) f32 {
+        return switch (self) {
+            .image => |*image| image.rotation,
+            .file_drop_image => 0,
+        };
+    }
 };
 
 pub const Image = struct {
     path: String,
     scale: f32,
+    rotation: f32,
 
     const Self = @This();
 
@@ -398,6 +413,7 @@ pub const Slide = struct {
     has_fallthrough_successor: bool = false,
     exclude_header: bool = false,
     exclude_footer: bool = false,
+    exclude_template: bool = false,
     layers: [layer_count]ArrayList(Section), // one section array for each of the 10 layers
 
     const Self = @This();
@@ -456,6 +472,7 @@ pub const SlideShow = struct {
     slides: ArrayList(Slide),
     header: ArrayList(Section),
     footer: ArrayList(Section),
+    template: ArrayList(Section),
     slide_index: usize = 0,
     tracked_file: String,
     watched_dir_id: ?c.dmon_watch_id = null,
@@ -468,6 +485,7 @@ pub const SlideShow = struct {
             .slides = ArrayList(Slide).init(state.allocator),
             .header = ArrayList(Section).init(state.allocator),
             .footer = ArrayList(Section).init(state.allocator),
+            .template = ArrayList(Section).init(state.allocator),
             .tracked_file = String.init(state.allocator),
         };
     }
@@ -487,6 +505,11 @@ pub const SlideShow = struct {
             section.deinit();
         }
         self.footer.deinit();
+
+        for (self.template.items) |*section| {
+            section.deinit();
+        }
+        self.template.deinit();
 
         self.tracked_file.deinit();
         c.dmon_deinit();
@@ -527,6 +550,11 @@ pub const SlideShow = struct {
         }
         self.footer.clearRetainingCapacity();
 
+        for (self.template.items) |*section| {
+            section.deinit();
+        }
+        self.template.clearRetainingCapacity();
+
         for (self.slides.items) |*slide| {
             slide.deinit();
         }
@@ -549,6 +577,7 @@ const ParseState = struct {
     section: Section = Section{ .section_type = undefined },
     header_defined: bool = false,
     footer_defined: bool = false,
+    template_defined: bool = false,
 
     const Self = @This();
 
@@ -561,7 +590,9 @@ const ParseState = struct {
     }
 
     fn addSection(self: *Self) !void {
-        const location = if (self.footer_defined)
+        const location = if (self.template_defined)
+            &state.slide_show.template
+        else if (self.footer_defined)
             &state.slide_show.footer
         else if (self.header_defined)
             &state.slide_show.header
@@ -610,6 +641,10 @@ const ParseState = struct {
             }
         }
     }
+
+    fn insideSpecialSection(self: *const Self) bool {
+        return self.header_defined or self.footer_defined or self.template_defined;
+    }
 };
 
 fn parseSlideShow(file_contents: []const u8) !void {
@@ -628,16 +663,16 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 parse_state.section.text_color = color;
             },
             .bg => |color| {
-                if (parse_state.header_defined or parse_state.footer_defined) {
+                if (parse_state.insideSpecialSection()) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
-                    return error.BackgroundColorInMarginal;
+                    return error.BackgroundColorInSpecialSection;
                 }
                 parse_state.slide.background_color = color;
             },
             .slide => |is_fallthrough| {
-                if (parse_state.header_defined or parse_state.footer_defined) {
+                if (parse_state.insideSpecialSection()) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
-                    return error.SlideAfterMarginalDefinition;
+                    return error.SlideAfterSpecialSectionDefinition;
                 }
                 try parse_state.addSlide(is_fallthrough);
             },
@@ -677,18 +712,18 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 try parse_state.addSection();
             },
             .aspect_ratio => |ratio| {
-                if (parse_state.header_defined or parse_state.footer_defined) {
+                if (parse_state.insideSpecialSection()) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
-                    return error.AspectRatioInMarginal;
+                    return error.AspectRatioInSpecialSection;
                 }
                 state.window.forceViewportAspectRatio(ratio);
                 state.window.updateViewport(state.window.size_x, state.window.size_y);
                 state.renderer.updateMatrices();
             },
             .black_bars => |flag| {
-                if (parse_state.header_defined or parse_state.footer_defined) {
+                if (parse_state.insideSpecialSection()) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
-                    return error.BlackBarsInMarginal;
+                    return error.BlackBarsInSpecialSection;
                 }
                 state.window.display_black_bars = flag;
                 state.window.updateViewport(state.window.size_x, state.window.size_y);
@@ -702,6 +737,10 @@ fn parseSlideShow(file_contents: []const u8) !void {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.HeaderDefinitionAfterFooter;
                 }
+                if (parse_state.template_defined) {
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
+                    return error.HeaderDefinitionAfterTemplate;
+                }
                 parse_state.header_defined = true;
                 parse_state.section = Section{ .section_type = undefined };
             },
@@ -710,20 +749,24 @@ fn parseSlideShow(file_contents: []const u8) !void {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
                     return error.MultipleFooters;
                 }
+                if (parse_state.template_defined) {
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
+                    return error.FooterDefinitionAfterTemplate;
+                }
                 parse_state.footer_defined = true;
                 if (!parse_state.header_defined) parse_state.section = Section{ .section_type = undefined };
             },
             .no_header => {
-                if (parse_state.header_defined or parse_state.footer_defined) {
+                if (parse_state.insideSpecialSection()) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
-                    return error.NoHeaderInMarginal;
+                    return error.NoHeaderInSpecialSection;
                 }
                 parse_state.slide.exclude_header = true;
             },
             .no_footer => {
-                if (parse_state.header_defined or parse_state.footer_defined) {
+                if (parse_state.insideSpecialSection()) {
                     std.log.err("Line {} | Parser interupt", .{ lexer.line });
-                    return error.NoFooterInMarginal;
+                    return error.NoFooterInSpecialSection;
                 }
                 parse_state.slide.exclude_footer = true;
             },
@@ -740,6 +783,21 @@ fn parseSlideShow(file_contents: []const u8) !void {
             .layer => |layer| {
                 parse_state.changeLayer(layer);
             },
+            .template => {
+                if (parse_state.template_defined) {
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
+                    return error.MultipleTemplates;
+                }
+                parse_state.template_defined = true;
+                parse_state.section = Section{ .section_type = undefined };
+            },
+            .no_template => {
+                if (parse_state.insideSpecialSection()) {
+                    std.log.err("Line {} | Parser interupt", .{ lexer.line });
+                    return error.NoTemplateInSpecialSection;
+                }
+                parse_state.slide.exclude_template = true;
+            },
         }
     }
 
@@ -750,10 +808,10 @@ fn parseSlideShow(file_contents: []const u8) !void {
     std.log.debug("Parsed slide show.", .{});
 }
 
-fn loadSlidesFromFile(file_path: []const u8) void {
+fn loadSlidesFromFile(file_path: []const u8) bool {
     const file_contents = data.readEntireFile(file_path, state.allocator) catch |err| {
         std.log.err("{s} | Unable to read file '{s}'.", .{ @errorName(err), file_path });
-        return;
+        return false;
     };
     defer file_contents.deinit();
 
@@ -761,11 +819,12 @@ fn loadSlidesFromFile(file_path: []const u8) void {
 
     parseSlideShow(file_contents.items) catch |e| {
         std.log.err("{s} | Unable to parse slide show file '{s}'.", .{ @errorName(e), file_path });
-        return;
+        return false;
     };
     state.renderer.loadSlideData();
 
     std.log.info("Successfully loaded slide show file: '{s}'.", .{ file_path });
+    return true;
 }
 
 fn unloadSlideShow() void {
@@ -779,15 +838,17 @@ fn unloadSlideShow() void {
     std.log.debug("Unloaded slide show.", .{});
 }
 
+var last_slide_index: usize = 0; // tracks the slide to go back to on successful reload
+
 pub fn reloadSlideShow() !void {
     assert(state.slide_show.fileIsTracked());
-    const slide_index = state.slide_show.slide_index;
+    if (state.slide_show.containsSlides()) last_slide_index = state.slide_show.slide_index;
 
     unloadSlideShow();
     std.log.info("Reloading slide show...", .{});
-    loadSlidesFromFile(state.slide_show.tracked_file.items);
+    const load_success = loadSlidesFromFile(state.slide_show.tracked_file.items);
 
-    state.slide_show.slide_index = @min(state.slide_show.slides.items.len -| 1, slide_index);
+    if (load_success) state.slide_show.slide_index = @min(state.slide_show.slides.items.len -| 1, last_slide_index);
 }
 
 pub fn loadSlideShow(file_path: [:0]const u8) !void {
@@ -798,7 +859,7 @@ pub fn loadSlideShow(file_path: [:0]const u8) !void {
     try state.slide_show.tracked_file.appendSlice(full_file_path);
 
     unloadSlideShow();
-    loadSlidesFromFile(full_file_path);
+    _ = loadSlidesFromFile(full_file_path);
 
     // init file watcher
     if (state.slide_show.watched_dir_id != null) c.dmon_unwatch(state.slide_show.watched_dir_id.?);
@@ -834,6 +895,7 @@ pub fn loadHomeScreenSlide() void {
         std.log.err("{s}", .{ @errorName(e) });
         return;
     };
+    state.slide_show.slide_index = 0;
     state.renderer.loadSlideData();
     std.log.debug("Loaded home screen slide.", .{});
 }

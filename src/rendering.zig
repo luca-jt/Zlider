@@ -205,8 +205,8 @@ pub const Renderer = struct {
     obj_buffer: ArrayList(Vertex),
     all_tex_ids: ArrayList(c.GLuint),
     max_num_meshes: usize,
-    projection: lina.Mat4 = lina.Mat4.ortho(-win.default_viewport_aspect_ratio / 2, win.default_viewport_aspect_ratio / 2, -0.5, 0.5, 0.1, 2.0), // these calls are fine because the initial ratio is known
-    view: lina.Mat4 = lina.Mat4.lookAt(lina.vec3(0.5 * win.default_viewport_aspect_ratio, -0.5, 1.0), lina.vec3(0.5 * win.default_viewport_aspect_ratio, -0.5, 0.0), lina.Vec3.unitY),
+    projection: lina.Mat4 = lina.Mat4.ortho(-win.default_viewport_aspect_ratio / 2, win.default_viewport_aspect_ratio / 2, -0.5, 0.5, 0.1, 5), // these calls are fine because the initial ratio is known
+    view: lina.Mat4 = lina.Mat4.lookAt(lina.vec3(0.5 * win.default_viewport_aspect_ratio, -0.5, 1.0), lina.vec3(0.5 * win.default_viewport_aspect_ratio, -0.5, 0.0), lina.Vec3.unit_y),
     images: StringHashMap(ImageData),
     serif_font_data: FontData,
     sans_serif_font_data: FontData,
@@ -326,8 +326,8 @@ pub const Renderer = struct {
 
     pub fn updateMatrices(self: *Self) void {
         const viewport_ratio = state.window.viewportRatio();
-        self.projection = lina.Mat4.ortho(-viewport_ratio / 2, viewport_ratio / 2, -0.5, 0.5, 0.1, 2.0);
-        self.view = lina.Mat4.lookAt(lina.vec3(0.5 * viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * viewport_ratio, -0.5, 0.0), lina.Vec3.unitY);
+        self.projection = lina.Mat4.ortho(-viewport_ratio / 2, viewport_ratio / 2, -0.5, 0.5, 0.1, 5);
+        self.view = lina.Mat4.lookAt(lina.vec3(0.5 * viewport_ratio, -0.5, 1.0), lina.vec3(0.5 * viewport_ratio, -0.5, 0.0), lina.Vec3.unit_y);
     }
 
     fn loadSectionData(self: *Self, section: *const slides.Section) void {
@@ -392,6 +392,9 @@ pub const Renderer = struct {
             self.loadSectionData(section);
         }
         for (state.slide_show.footer.items) |*section| {
+            self.loadSectionData(section);
+        }
+        for (state.slide_show.template.items) |*section| {
             self.loadSectionData(section);
         }
 
@@ -463,14 +466,22 @@ pub const Renderer = struct {
         if (slide_opt == null) return;
         const slide = slide_opt.?;
 
-        var cursor_x: f64 = 0; // x position in pixel units
-        var cursor_y: f64 = -min_slide_bottom_top_spacing; // y baseline position in pixel units
-        const marginal_render_depth: f32 = 0; // headers and footers are always rendered on top
+        var cursor_y: f64 = 0; // y baseline position in pixel units
+        const marginal_render_depth: f32 = 0.1; // headers/footers are always rendered on top
+        const template_render_depth: f32 = -1; // templates are always rendered at the bottom
+
+        // render the template
+        if (!slide.exclude_template) {
+            for (state.slide_show.template.items) |*section| {
+                try self.renderSection(section, &cursor_y, template_render_depth);
+            }
+        }
+        cursor_y = 0;
 
         // render the header
         if (!slide.exclude_header) {
             for (state.slide_show.header.items) |*section| {
-                try self.renderSection(section, &cursor_x, &cursor_y, marginal_render_depth);
+                try self.renderSection(section, &cursor_y, marginal_render_depth);
             }
         }
         const after_header_y = cursor_y;
@@ -480,7 +491,7 @@ pub const Renderer = struct {
             const layer_depth = -@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(slides.layer_count));
             cursor_y = after_header_y;
             for (section_array.items) |*section| {
-                try self.renderSection(section, &cursor_x, &cursor_y, layer_depth);
+                try self.renderSection(section, &cursor_y, layer_depth);
             }
         }
 
@@ -488,14 +499,16 @@ pub const Renderer = struct {
         cursor_y = -(win.viewport_height_reference - self.footer_height - min_slide_bottom_top_spacing);
         if (!slide.exclude_footer) {
             for (state.slide_show.footer.items) |*section| {
-                try self.renderSection(section, &cursor_x, &cursor_y, marginal_render_depth);
+                try self.renderSection(section, &cursor_y, marginal_render_depth);
             }
         }
 
         self.flush();
     }
 
-    fn renderSection(self: *Self, section: *const slides.Section, cursor_x: *f64, cursor_y: *f64, layer_depth: f32) !void {
+    fn renderSection(self: *Self, section: *const slides.Section, cursor_y: *f64, layer_depth: f32) !void {
+        var cursor_x: f64 = 0; // x position in pixel units
+
         const font_data = switch (section.font_style) {
             .serif => &self.serif_font_data,
             .sans_serif => &self.sans_serif_font_data,
@@ -515,6 +528,8 @@ pub const Renderer = struct {
                 cursor_y.* += yadvance * @as(f64, @floatFromInt(lines));
             },
             .text => |text| {
+                if (cursor_y.* == 0) cursor_y.* = -min_slide_bottom_top_spacing; // this offset is only for text
+
                 const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
                 const tex_id: c.GLuint = font_storage.texture;
                 const space_width = charFontWidth(' ', &font_storage, font_display_scale);
@@ -548,7 +563,7 @@ pub const Renderer = struct {
                         const line_to_render = line[line_to_render_start..line_to_render_start + line_to_render_len];
                         line_to_render_start += line_to_render_len + 1; // advance the start of the rest of the line to render for the next iteration (the +1 is for the space that didn't get rendered)
 
-                        cursor_x.* = switch (section.alignment) {
+                        cursor_x = switch (section.alignment) {
                             .center => (win.viewport_width_reference - line_width) / 2,
                             .right => win.viewport_width_reference - line_width - section.right_space,
                             .left => section.left_space,
@@ -559,10 +574,10 @@ pub const Renderer = struct {
                             // lines don't contain the trailing new-line character
                             switch (char) {
                                 ' ' => {
-                                    cursor_x.* += baked_char.xadvance * font_display_scale;
+                                    cursor_x += baked_char.xadvance * font_display_scale;
                                 },
                                 else => {
-                                    const x_pos = (cursor_x.* + baked_char.xoff * font_display_scale) * inverse_viewport_height;
+                                    const x_pos = (cursor_x + baked_char.xoff * font_display_scale) * inverse_viewport_height;
                                     const y_pos = (cursor_y.* - @as(f64, @floatFromInt(font_data.ascent)) * font_scale * font_display_scale - baked_char.yoff * font_display_scale) * inverse_viewport_height;
                                     // the switch of the sign of the y-offset is done to keep the way projections are done
 
@@ -584,7 +599,7 @@ pub const Renderer = struct {
                                         self.flush();
                                         assert(try self.addFontQuad(trafo, tex_id, &uvs, section.text_color));
                                     }
-                                    cursor_x.* += baked_char.xadvance * font_display_scale;
+                                    cursor_x += baked_char.xadvance * font_display_scale;
                                 },
                             }
                         }
@@ -596,20 +611,23 @@ pub const Renderer = struct {
                     .image => |*image| self.images.get(image.path.items).?,
                     .file_drop_image => self.file_drop_image.?,
                 };
-                cursor_x.* = switch (section.alignment) {
+                cursor_x = switch (section.alignment) {
                     .center => (win.viewport_width_reference - image_data.width * image_source.scale()) / 2,
                     .right => win.viewport_width_reference - image_data.width * image_source.scale() - section.right_space,
                     .left => section.left_space,
                 };
 
-                const x_pos = cursor_x.* * inverse_viewport_height;
+                const x_pos = cursor_x * inverse_viewport_height;
                 const y_pos = cursor_y.* * inverse_viewport_height;
                 const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), layer_depth);
 
                 const image_scale = lina.Mat4.scaleFromFactor(image_source.scale());
                 const scale = lina.Mat4.scale(.{ .x = image_data.width / image_data.height, .y = 1.0, .z = 1.0, });
                 const pixel_scale = lina.Mat4.scaleFromFactor(@as(f32, @floatCast(inverse_viewport_height)) * image_data.height);
-                const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale).mul(image_scale);
+                const rotate = lina.Mat4.rotateAngleAxis(lina.Vec3.unit_z.negate(), image_source.rotation());
+                const quad_center = lina.Mat4.translation(lina.vec3(0.5, -0.5, 0));
+                const inv_quad_center = quad_center.tryInvert().?;
+                const trafo = lina.Mat4.translation(position).mul(scale).mul(pixel_scale).mul(image_scale).mul(quad_center).mul(rotate).mul(inv_quad_center);
 
                 if (!try self.addImageQuad(trafo, image_data.texture)) {
                     self.flush();
@@ -618,13 +636,13 @@ pub const Renderer = struct {
                 cursor_y.* -= image_data.height * image_source.scale();
             },
             .quad => |color_quad| {
-                cursor_x.* = switch (section.alignment) {
+                cursor_x = switch (section.alignment) {
                     .center => (win.viewport_width_reference - color_quad.width) / 2,
                     .right => win.viewport_width_reference - color_quad.width - section.right_space,
                     .left => section.left_space,
                 };
 
-                const x_pos = cursor_x.* * inverse_viewport_height;
+                const x_pos = cursor_x * inverse_viewport_height;
                 const y_pos = cursor_y.* * inverse_viewport_height;
                 const position = lina.vec3(@floatCast(x_pos), @floatCast(y_pos), layer_depth);
 
