@@ -32,6 +32,7 @@ Here is a complete list:
 | center | - | Alignment specifier that centers all contents. |
 | left | - | Alignment specifier that left-aligns all contents. |
 | right | - | Alignment specifier that right-aligns all contents. |
+| block | - | Alignment specifier that produces block text and left-aligns other contents. |
 | slide | ("fallthrough") | Seperator between slides. |
 | text | ``String`` text | Marks the beginning and end of a text block. |
 | space | ``Integer`` | Inserts a given amount of empty lines. |
@@ -62,4 +63,5 @@ This is made possible because the project already ships most external dependency
 > Support for MacOS in theory is there, but it's not tested at all. Other targets might require some work, too. PR's are welcome.
 
 ## Planned Features
-- Conversion to PDF files bakes actual text data and not just rendered images.
+- custom font ttf file loading support
+- conversion to PDF files bakes actual text data and not just rendered images

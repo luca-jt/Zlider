@@ -288,8 +288,8 @@ pub const Renderer = struct {
         self.obj_buffer.deinit();
         self.all_tex_ids.deinit();
 
-        var iterator = self.images.valueIterator();
-        while (iterator.next()) |image_data| {
+        var image_it = self.images.valueIterator();
+        while (image_it.next()) |image_data| {
             c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.deinit();
@@ -305,8 +305,8 @@ pub const Renderer = struct {
 
     pub fn clear(self: *Self) void {
         self.obj_buffer.clearRetainingCapacity();
-        var iterator = self.images.valueIterator();
-        while (iterator.next()) |image_data| {
+        var image_it = self.images.valueIterator();
+        while (image_it.next()) |image_data| {
             c.glDeleteTextures(1, &image_data.texture);
         }
         self.images.clearRetainingCapacity();
@@ -368,13 +368,13 @@ pub const Renderer = struct {
                 }
             },
             .text => {
-                const font_data = switch (section.font_style) {
+                const font_data = switch (section.font) {
                     .serif => &self.serif_font_data,
                     .sans_serif => &self.sans_serif_font_data,
                     .monospace => &self.monospace_font_data,
                 };
                 const added = font_data.loadFont(section.text_size);
-                if (added) std.log.debug("Loaded font {s} with size {}.", .{ @tagName(section.font_style), section.text_size });
+                if (added) std.log.debug("Loaded font {s} with size {}.", .{ @tagName(section.font), section.text_size });
             },
             .space, .quad => {},
         }
@@ -405,7 +405,7 @@ pub const Renderer = struct {
             // It might be smart to re-factor this in the future if you need all sorts of different iterations over section contents, maybe not.
             // For more contextual comments, take a look at the rendering functions.
             //
-            const font_data = switch (section.font_style) {
+            const font_data = switch (section.font) {
                 .serif => &self.serif_font_data,
                 .sans_serif => &self.sans_serif_font_data,
                 .monospace => &self.monospace_font_data,
@@ -428,6 +428,7 @@ pub const Renderer = struct {
                 .text => |text| {
                     const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
                     const space_width = charFontWidth(' ', &font_storage, font_display_scale);
+                    const available_line_width = win.viewport_width_reference - section.left_space - section.right_space;
                     var line_iterator = data.SplitIterator{ .string = text.items, .delimiter = '\n' };
 
                     while (line_iterator.next()) |line| {
@@ -437,7 +438,7 @@ pub const Renderer = struct {
 
                             while (word_iterator.peek(1)) |word| {
                                 const additional_width = space_width + sliceFontWidth(word, &font_storage, font_display_scale);
-                                if (line_width + additional_width > win.viewport_width_reference - section.left_space - section.right_space) break;
+                                if (line_width + additional_width > available_line_width) break;
                                 line_width += additional_width;
                                 assert(word_iterator.next() != null);
                             }
@@ -509,7 +510,7 @@ pub const Renderer = struct {
     fn renderSection(self: *Self, section: *const slides.Section, cursor_y: *f64, layer_depth: f32) !void {
         var cursor_x: f64 = 0; // x position in pixel units
 
-        const font_data = switch (section.font_style) {
+        const font_data = switch (section.font) {
             .serif => &self.serif_font_data,
             .sans_serif => &self.sans_serif_font_data,
             .monospace => &self.monospace_font_data,
@@ -533,6 +534,8 @@ pub const Renderer = struct {
                 const font_storage = font_data.loaded_fonts.get(sourced_font_size).?;
                 const tex_id: c.GLuint = font_storage.texture;
                 const space_width = charFontWidth(' ', &font_storage, font_display_scale);
+                const available_line_width = win.viewport_width_reference - section.left_space - section.right_space;
+
                 var line_iterator = data.SplitIterator{ .string = text.items, .delimiter = '\n' };
 
                 while (line_iterator.next()) |line| {
@@ -547,18 +550,21 @@ pub const Renderer = struct {
 
                         var line_width: f64 = sliceFontWidth(first_word, &font_storage, font_display_scale);
                         var line_to_render_len: usize = first_word.len;
+                        var number_of_spaces_in_line_to_render: f64 = 0;
 
                         while (word_iterator.peek(1)) |word| {
                             const additional_width = space_width + sliceFontWidth(word, &font_storage, font_display_scale);
 
                             // We don't know wether or not the line fits on the whole screen.
                             // If we encounter a word that won't fit, we render the stuff that does and go to the next line while skipping the space in between.
-                            if (line_width + additional_width > win.viewport_width_reference - section.left_space - section.right_space) break;
+                            if (line_width + additional_width > available_line_width) break;
 
+                            number_of_spaces_in_line_to_render += 1;
                             line_width += additional_width;
                             line_to_render_len += 1 + word.len; // don't forget the space
                             assert(word_iterator.next() != null); // we peeked successfully
                         }
+                        const auto_line_break_happened = word_iterator.peek(1) != null;
 
                         const line_to_render = line[line_to_render_start..line_to_render_start + line_to_render_len];
                         line_to_render_start += line_to_render_len + 1; // advance the start of the rest of the line to render for the next iteration (the +1 is for the space that didn't get rendered)
@@ -566,15 +572,17 @@ pub const Renderer = struct {
                         cursor_x = switch (section.alignment) {
                             .center => (win.viewport_width_reference - line_width) / 2,
                             .right => win.viewport_width_reference - line_width - section.right_space,
-                            .left => section.left_space,
+                            .left, .block => section.left_space,
                         };
+
+                        const space_width_factor = if (section.alignment == .block and auto_line_break_happened) (space_width + (available_line_width - line_width) / number_of_spaces_in_line_to_render) / space_width else 1;
 
                         for (line_to_render) |char| {
                             const baked_char = &font_storage.baked_chars[@as(usize, @intCast(char)) - data.first_char];
                             // lines don't contain the trailing new-line character
                             switch (char) {
                                 ' ' => {
-                                    cursor_x += baked_char.xadvance * font_display_scale;
+                                    cursor_x += baked_char.xadvance * font_display_scale * space_width_factor;
                                 },
                                 else => {
                                     const x_pos = (cursor_x + baked_char.xoff * font_display_scale) * inverse_viewport_height;
@@ -614,7 +622,7 @@ pub const Renderer = struct {
                 cursor_x = switch (section.alignment) {
                     .center => (win.viewport_width_reference - image_data.width * image_source.scale()) / 2,
                     .right => win.viewport_width_reference - image_data.width * image_source.scale() - section.right_space,
-                    .left => section.left_space,
+                    .left, .block => section.left_space,
                 };
 
                 const x_pos = cursor_x * inverse_viewport_height;
@@ -639,7 +647,7 @@ pub const Renderer = struct {
                 cursor_x = switch (section.alignment) {
                     .center => (win.viewport_width_reference - color_quad.width) / 2,
                     .right => win.viewport_width_reference - color_quad.width - section.right_space,
-                    .left => section.left_space,
+                    .left, .block => section.left_space,
                 };
 
                 const x_pos = cursor_x * inverse_viewport_height;

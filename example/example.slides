@@ -141,6 +141,23 @@ text
 // Once you change the current layer to work on, all formatting specs will be reset to the last state on that layer. However, if you change formatting right before changing the layer without adding new content, that format specification is lost when changing the layer back to the original one. Format spec will be tracked across slides for every layer.
 
 
+slide fallthrough
+
+layer 5
+text_color 0xFFFFFFFF
+space 20
+text_size 45
+block
+left_space 200
+right_space 200
+
+text
+This is a really long text segment with block text formatting. A line with auto line breaks always fills the available width of the slide respecting the formatting (like spacing).
+If you put line breaks in there, they will be rendered regularly.
+text
+
+
+
 // You can define an optional unique header or footer just like a slide at the end of the file. It will be displayed on every slide it's not excluded from. Each definition ends on a new slide/header/footer declaration. They can't contain format specifiers that influence entire slides. Header definitions must precede footer definitions. All formatting specifications are reset once you start defining headers or footers, but they do carry over between the two.
 
 header

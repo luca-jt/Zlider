@@ -14,6 +14,7 @@ pub const Keyword = enum(usize) {
     center,
     left,
     right,
+    block,
     text,
     space,
     text_size,
@@ -39,15 +40,13 @@ pub const Token = union(enum) {
     text_color: data.Color32,
     bg: data.Color32,
     slide: bool, // wether or not the slide is a fallthrough slide
-    center,
-    left,
-    right,
+    alignment: ElementAlignment,
     text: String,
     space: usize,
     text_size: usize,
     image: Image,
     line_spacing: f64,
-    font_style: FontStyle,
+    font: Font,
     file_drop_image: f32, // scale
     aspect_ratio: f32,
     black_bars: bool,
@@ -171,6 +170,23 @@ const Lexer = struct {
         return param;
     }
 
+    fn readNextFilePathAlloc(self: *Self) !String {
+        self.readNextWord();
+        var full_image_path = String.init(state.allocator);
+        defer full_image_path.deinit();
+        try full_image_path.appendSlice(self.file_dir.?);
+        try full_image_path.append('/'); // i think this should be fine on windows
+        try full_image_path.appendSlice(self.contents());
+        const resolved_path = try std.fs.path.resolve(state.allocator, &[_][]const u8{full_image_path.items});
+        const resolved_path_owned = String.fromOwnedSlice(state.allocator, resolved_path);
+        errdefer resolved_path_owned.deinit();
+        std.fs.accessAbsolute(resolved_path_owned.items, .{}) catch |err| {
+            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, resolved_path_owned.items });
+            return err;
+        };
+        return resolved_path_owned;
+    }
+
     fn nextToken(self: *Self) !?Token {
         self.buffer.clearRetainingCapacity();
         var token: ?Token = null;
@@ -190,9 +206,10 @@ const Lexer = struct {
                         if (is_fallthrough) self.readNextWord();
                         break :blk .{ .slide = is_fallthrough };
                     },
-                    .center => .center,
-                    .left => .left,
-                    .right => .right,
+                    .center => .{ .alignment = .center },
+                    .left => .{ .alignment = .left },
+                    .right => .{ .alignment = .right },
+                    .block => .{ .alignment = .block },
                     .text => blk: {
                         var text = String.init(state.allocator);
                         errdefer text.deinit();
@@ -223,30 +240,17 @@ const Lexer = struct {
                             return error.ImageInInternalSource;
                         }
 
-                        self.readNextWord();
-                        var full_image_path = String.init(state.allocator);
-                        defer full_image_path.deinit();
-                        try full_image_path.appendSlice(self.file_dir.?);
-                        try full_image_path.append('/'); // i think this should be fine on windows
-                        try full_image_path.appendSlice(self.contents());
-                        const resolved_path = try std.fs.path.resolve(state.allocator, &[_][]const u8{full_image_path.items});
-                        const resolved_path_owned = String.fromOwnedSlice(state.allocator, resolved_path);
-                        errdefer resolved_path_owned.deinit();
-                        std.fs.accessAbsolute(resolved_path_owned.items, .{}) catch |err| {
-                            std.log.err("Line {}: '{s}' | Lexer interupt", .{ self.line, resolved_path_owned.items });
-                            return err;
-                        };
-
+                        const path = try self.readNextFilePathAlloc();
                         const scale = if (self.readNextOptionalParameter(f32)) |s| s else 1;
                         const rotation = if (self.readNextOptionalParameter(f32)) |r| std.math.degreesToRadians(r) else 0;
 
-                        break :blk .{ .image = .{ .path = resolved_path_owned, .scale = scale, .rotation = rotation } };
+                        break :blk .{ .image = .{ .path = path, .scale = scale, .rotation = rotation } };
                     },
                     .line_spacing => .{ .line_spacing = try self.readNextParameter(f64) },
                     .font => blk: {
                         self.readNextWord();
 
-                        const font_style: FontStyle = if (std.mem.eql(u8, self.contents(), "serif"))
+                        const font: Font = if (std.mem.eql(u8, self.contents(), "serif"))
                             .serif
                         else if (std.mem.eql(u8, self.contents(), "sans_serif"))
                             .sans_serif
@@ -255,7 +259,7 @@ const Lexer = struct {
                         else
                             return error.InvalidToken;
 
-                        break :blk .{ .font_style = font_style };
+                        break :blk .{ .font = font };
                     },
                     .file_drop_image => blk: {
                         const scale = if (self.readNextOptionalParameter(f32)) |s| s else 1.0;
@@ -362,9 +366,9 @@ pub const SectionType = union(enum) {
     quad: ColorQuad,
 };
 
-pub const ElementAlignment = enum { center, right, left };
+pub const ElementAlignment = enum { center, right, left, block };
 
-pub const FontStyle = enum { serif, sans_serif, monospace };
+pub const Font = enum { serif, sans_serif, monospace };
 
 pub const Section = struct {
     text_size: usize = 40,
@@ -372,7 +376,7 @@ pub const Section = struct {
     text_color: data.Color32 = @bitCast(@as(u32, 0x000000FF)),
     alignment: ElementAlignment = .left,
     line_spacing: f64 = 1.0,
-    font_style: FontStyle = .serif,
+    font: Font = .serif,
     left_space: f64 = 10,
     right_space: f64 = 10,
 
@@ -676,14 +680,8 @@ fn parseSlideShow(file_contents: []const u8) !void {
                 }
                 try parse_state.addSlide(is_fallthrough);
             },
-            .center => {
-                parse_state.section.alignment = .center;
-            },
-            .left => {
-                parse_state.section.alignment = .left;
-            },
-            .right => {
-                parse_state.section.alignment = .right;
+            .alignment => |alignment| {
+                parse_state.section.alignment = alignment;
             },
             .text => |string| {
                 parse_state.section.section_type = .{ .text = string };
@@ -704,8 +702,8 @@ fn parseSlideShow(file_contents: []const u8) !void {
             .line_spacing => |spacing| {
                 parse_state.section.line_spacing = spacing;
             },
-            .font_style => |style| {
-                parse_state.section.font_style = style;
+            .font => |font| {
+                parse_state.section.font = font;
             },
             .file_drop_image => |scale| {
                 parse_state.section.section_type = .{ .image_source = .{ .file_drop_image = scale } };
