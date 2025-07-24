@@ -488,7 +488,9 @@ pub const Renderer = struct {
         const after_header_y = cursor_y;
 
         // render the slide contents
-        for (&slide.layers, 0..) |*section_array, i| {
+        var i = slides.layer_count - 1;
+        while (i > 0) : (i -= 1) {
+            const section_array = &slide.layers[i];
             const layer_depth = -@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(slides.layer_count));
             cursor_y = after_header_y;
             for (section_array.items) |*section| {
