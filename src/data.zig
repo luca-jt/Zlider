@@ -176,11 +176,8 @@ pub const home_screen_slide: [:0]const u8 =
     \\center
     \\text_color 0xF6A319FF
     \\bg 0x2C2E34FF
-    \\text_size 10
-    \\
-    \\space 13
-    \\
     \\text_size 400
+    \\space 120
     \\
     \\text
     \\Zlider
@@ -189,14 +186,12 @@ pub const home_screen_slide: [:0]const u8 =
     \\text_color 0xE2E2E3FF
     \\text_size 30
     \\font monospace
-    \\
-    \\space 4
+    \\space 140
     \\
     \\text
     \\Drag and drop a slide show file to load.
     \\text
     \\
-    \\space 2
-    \\
+    \\space 60
     \\file_drop_image 0.2
 ;
