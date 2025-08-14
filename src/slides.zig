@@ -83,7 +83,8 @@ const Lexer = struct {
         self.buffer.deinit();
     }
 
-    fn head(self: *const Self) u8 {
+    fn head(self: *Self) u8 {
+        if (self.input[self.ptr] == '\r') self.ptr += 1;
         const char = self.input[self.ptr];
         if (char == '\t') return ' '; // we don't want tabs in the final text and replace them with single spaces
         return char;
